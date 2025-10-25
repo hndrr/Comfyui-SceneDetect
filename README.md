@@ -1,6 +1,6 @@
-# Comfyui-SceneDetect
+# [WIP] Comfyui-SceneDetect
 
-![workflow](assets/2025-10-25%20230736.png)
+![workflow](assets/2025-10-25-235141.png)
 
 Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate scene boundaries in a video and emit one representative frame per scene as an `IMAGE` batch. It also returns per-scene metadata as JSON (`STRING`) and the total number of detected scenes (`INT`).
 
@@ -10,6 +10,10 @@ Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate s
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
+
+## Requirements
+
+- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite): Provides the `Load Video` node that supplies `IMAGE` batches and `VHS_VIDEOINFO` metadata consumed by this node.
 
 ## Installation
 
