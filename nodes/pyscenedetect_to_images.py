@@ -36,7 +36,7 @@ class PySceneDetectToImages:
     def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
         return {
             "required": {
-                "video_frames": (IMAGE_OR_LATENT, {}),
+                "image": (IMAGE_OR_LATENT, {}),
                 "video_info": ("VHS_VIDEOINFO", {}),
                 "method": (
                     ["content", "adaptive", "threshold"],
@@ -59,7 +59,7 @@ class PySceneDetectToImages:
                 "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "write_thumbs": ("BOOLEAN", {"default": False}),
-                "thumbs_dir": ("STRING", {"default": "", "placeholder": "空なら ./scene_thumbs"}),
+                "thumbs_dir": ("STRING", {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"}),
             },
         }
 
@@ -70,7 +70,7 @@ class PySceneDetectToImages:
 
     def run(
         self,
-        video_frames: torch.Tensor,
+        image: torch.Tensor,
         video_info: Dict[str, Any],
         method: str,
         threshold: float,
@@ -84,18 +84,18 @@ class PySceneDetectToImages:
         write_thumbs: bool = False,
         thumbs_dir: str = "",
     ):
-        if isinstance(video_frames, dict) and "samples" in video_frames:
-            raise ValueError("VAE 出力（LATENT）は未対応です。Load Video ノードで VAE を接続しないでください。")
-        if not isinstance(video_frames, torch.Tensor) or video_frames.ndim != 4 or video_frames.shape[0] == 0:
-            raise ValueError("video_frames には (B,H,W,C) または (B,C,H,W) のテンソルを接続してください。")
+        if isinstance(image, dict) and "samples" in image:
+            raise ValueError("LATENT tensors from VAE outputs are not supported. Disconnect the VAE from the Load Video node.")
+        if not isinstance(image, torch.Tensor) or image.ndim != 4 or image.shape[0] == 0:
+            raise ValueError("image must be a tensor with shape (B,H,W,C) or (B,C,H,W).")
 
         if not isinstance(video_info, dict):
-            raise ValueError("video_info には Load Video (VHS) の 4 番目の出力を接続してください。")
+            raise ValueError("Connect the fourth output from Load Video (VHS) to video_info.")
         fps = float(video_info.get("loaded_fps", 0.0) or 0.0)
         if fps <= 0:
             fps = float(video_info.get("source_fps", 0.0) or 0.0)
         if fps <= 0:
-            raise ValueError("video_info に有効な FPS が含まれていません。")
+            raise ValueError("video_info does not contain a valid FPS value.")
 
         def _jsonable(val: Any):
             if isinstance(val, (np.integer,)):
@@ -106,13 +106,13 @@ class PySceneDetectToImages:
 
         video_info_json = {k: _jsonable(v) for k, v in video_info.items()}
 
-        frames_cpu = video_frames.detach().cpu()
+        frames_cpu = image.detach().cpu()
         if frames_cpu.shape[1] in (1, 3, 4) and frames_cpu.shape[2] > 4 and frames_cpu.shape[3] > 4:
             frames_np = frames_cpu.numpy().transpose(0, 2, 3, 1)
         elif frames_cpu.shape[-1] in (1, 3, 4):
             frames_np = frames_cpu.numpy()
         else:
-            raise ValueError("video_frames の shape を (B,C,H,W) または (B,H,W,C) として解釈できません。")
+            raise ValueError("image cannot be interpreted as (B,C,H,W) or (B,H,W,C).")
 
         max_val = float(frames_cpu.max().item())
         if max_val <= 1.0 + 1e-6:
@@ -145,7 +145,7 @@ class PySceneDetectToImages:
 
             writer = _open_writer(tmp_video)
             if writer is None:
-                raise RuntimeError("一時動画の作成に失敗しました。利用可能なコーデックが見つかりません。")
+                raise RuntimeError("Failed to create temporary video: no compatible codec found.")
 
             try:
                 for frame_bgr in frames_bgr:
@@ -193,7 +193,7 @@ class PySceneDetectToImages:
                 cv2.imwrite(os.path.join(thumbs_dir, out_name), frame)
 
         if not image_tensors:
-            # 型整合のためのフォールバック：1x1黒
+            # Fallback for type consistency: 1x1 black frame
             black = np.zeros((1, 1, 3), dtype=np.uint8)
             image_tensors = [frame_to_tensor_bhwc(black)]
 
