@@ -90,7 +90,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
       "fps": 29.97,
       "start_time": "00:00:00.000",
       "end_time": "00:00:05.105",
-      "duration_sec": 5.10
+      "duration_sec": 5.105105105105105
     }
   ]
 }
