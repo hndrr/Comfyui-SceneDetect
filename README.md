@@ -40,7 +40,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 ## Inputs and Outputs
 
 - Required inputs
-  - `video_frames` (`IMAGE`): Connect output 1 from the comfyui-videohelpersuite (VHS) `Load Video` node. This must be an RGB frame batch (`(B,H,W,C)` or `(B,C,H,W)`). Latent batches from VAE outputs are not supported.
+  - `image` (`IMAGE`): Connect output 1 from the comfyui-videohelpersuite (VHS) `Load Video` node. This must be an RGB frame batch (`(B,H,W,C)` or `(B,C,H,W)`). Latent batches from VAE outputs are not supported.
   - `video_info` (`VHS_VIDEOINFO`): Connect output 4 from the same node (metadata such as playback FPS). When `loaded_fps` is 0, the node falls back to `source_fps`.
   - `method` (`content|adaptive|threshold`): Scene detection method.
   - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
@@ -96,7 +96,7 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 ## Usage in ComfyUI
 
 1. Load a video with the VHS `Load Video` node while outputting RGB frames (do not connect a VAE).
-2. Add the `PySceneDetect: Scenes → Images` node, connect `video_frames` to output 1 and `video_info` to output 4 of `Load Video`.
+2. Add the `PySceneDetect: Scenes → Images` node, connect `image` to output 1 and `video_info` to output 4 of `Load Video`.
 3. Adjust `method`, `threshold`, and `min_scene_len_*` to match the video source.
 4. Configure the representative frame position, optional resizing, and thumbnail export settings.
 5. Execute the graph to receive representative frames on `images` and scene metadata on `scenes_json`.
