@@ -66,13 +66,12 @@ def resize_keep_ar(w: int, h: int, max_w: int, max_h: int) -> Tuple[int, int]:
     return max(nw, 1), max(nh, 1)
 
 
-def frame_to_tensor_bchw(frame_bgr: np.ndarray) -> torch.Tensor:
+def frame_to_tensor_bhwc(frame_bgr: np.ndarray) -> torch.Tensor:
     rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     arr = rgb.astype(np.float32) / 255.0
     if arr.ndim == 2:
         arr = np.repeat(arr[..., None], 3, axis=2)
-    chw = np.transpose(arr, (2, 0, 1))
-    return torch.from_numpy(chw)[None, ...]  # (1,C,H,W)
+    return torch.from_numpy(arr)[None, ...]  # (1,H,W,C)
 
 
 def detect_scenes(

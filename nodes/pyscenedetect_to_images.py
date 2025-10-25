@@ -1,14 +1,31 @@
 from __future__ import annotations
 from typing import Any, Dict
-import os, json, cv2, torch
+import os, json, cv2, torch, tempfile
+import numpy as np
 
 from ..utils.video_ops import (
     detect_scenes,
     timecodes_to_dict,
     pick_frame_index,
     resize_keep_ar,
-    frame_to_tensor_bchw,
+    frame_to_tensor_bhwc,
 )
+
+
+class _MultiInput(str):
+    def __new__(cls, name: str, allowed_types="*"):
+        res = super().__new__(cls, name)
+        res.allowed_types = allowed_types
+        return res
+
+    def __ne__(self, other: Any) -> bool:
+        allowed = getattr(self, "allowed_types", "*")
+        if allowed == "*" or other == "*":
+            return False
+        return other not in allowed
+
+
+IMAGE_OR_LATENT = _MultiInput("IMAGE", ["IMAGE", "LATENT"])
 
 NODE_CLASS_MAPPINGS: Dict[str, Any] = {}
 NODE_DISPLAY_NAME_MAPPINGS: Dict[str, str] = {}
@@ -19,10 +36,8 @@ class PySceneDetectToImages:
     def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
         return {
             "required": {
-                "video_path": (
-                    "STRING",
-                    {"multiline": False, "placeholder": "/path/to/video.mp4"},
-                ),
+                "video_frames": (IMAGE_OR_LATENT, {}),
+                "video_info": ("VHS_VIDEOINFO", {}),
                 "method": (
                     ["content", "adaptive", "threshold"],
                     {"default": "content"},
@@ -44,13 +59,7 @@ class PySceneDetectToImages:
                 "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "write_thumbs": ("BOOLEAN", {"default": False}),
-                "thumbs_dir": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "placeholder": "空なら video と同ディレクトリ/scene_thumbs",
-                    },
-                ),
+                "thumbs_dir": ("STRING", {"default": "", "placeholder": "空なら ./scene_thumbs"}),
             },
         }
 
@@ -61,7 +70,8 @@ class PySceneDetectToImages:
 
     def run(
         self,
-        video_path: str,
+        video_frames: torch.Tensor,
+        video_info: Dict[str, Any],
         method: str,
         threshold: float,
         min_scene_len_sec: float,
@@ -74,64 +84,125 @@ class PySceneDetectToImages:
         write_thumbs: bool = False,
         thumbs_dir: str = "",
     ):
-        if not os.path.isfile(video_path):
-            raise FileNotFoundError(f"video_path が存在しません: {video_path}")
+        if isinstance(video_frames, dict) and "samples" in video_frames:
+            raise ValueError("VAE 出力（LATENT）は未対応です。Load Video ノードで VAE を接続しないでください。")
+        if not isinstance(video_frames, torch.Tensor) or video_frames.ndim != 4 or video_frames.shape[0] == 0:
+            raise ValueError("video_frames には (B,H,W,C) または (B,C,H,W) のテンソルを接続してください。")
 
-        scene_list, fps = detect_scenes(
-            video_path,
-            method,
-            threshold,
-            min_scene_len_sec,
-            min_scene_len_frames,
-            luma_only,
-        )
+        if not isinstance(video_info, dict):
+            raise ValueError("video_info には Load Video (VHS) の 4 番目の出力を接続してください。")
+        fps = float(video_info.get("loaded_fps", 0.0) or 0.0)
+        if fps <= 0:
+            fps = float(video_info.get("source_fps", 0.0) or 0.0)
+        if fps <= 0:
+            raise ValueError("video_info に有効な FPS が含まれていません。")
+
+        def _jsonable(val: Any):
+            if isinstance(val, (np.integer,)):
+                return int(val)
+            if isinstance(val, (np.floating,)):
+                return float(val)
+            return val
+
+        video_info_json = {k: _jsonable(v) for k, v in video_info.items()}
+
+        frames_cpu = video_frames.detach().cpu()
+        if frames_cpu.shape[1] in (1, 3, 4) and frames_cpu.shape[2] > 4 and frames_cpu.shape[3] > 4:
+            frames_np = frames_cpu.numpy().transpose(0, 2, 3, 1)
+        elif frames_cpu.shape[-1] in (1, 3, 4):
+            frames_np = frames_cpu.numpy()
+        else:
+            raise ValueError("video_frames の shape を (B,C,H,W) または (B,H,W,C) として解釈できません。")
+
+        max_val = float(frames_cpu.max().item())
+        if max_val <= 1.0 + 1e-6:
+            frames_rgb = np.clip(frames_np * 255.0, 0, 255).astype(np.uint8)
+        else:
+            frames_rgb = np.clip(frames_np, 0, 255).astype(np.uint8)
+
+        if frames_rgb.shape[-1] == 4:
+            frames_rgb = frames_rgb[..., :3]
+        if frames_rgb.shape[-1] == 1:
+            frames_rgb = np.repeat(frames_rgb, 3, axis=-1)
+
+        height, width = int(frames_rgb.shape[1]), int(frames_rgb.shape[2])
+        frames_bgr = [frame[..., ::-1].copy() for frame in frames_rgb]
+
+        with tempfile.TemporaryDirectory(prefix="scenedetect_") as tmpd:
+            tmp_video = os.path.join(tmpd, "input.avi")
+
+            def _open_writer(path: str):
+                for code in ("MJPG", "mp4v", "XVID"):
+                    writer = cv2.VideoWriter(
+                        path,
+                        cv2.VideoWriter_fourcc(*code),
+                        float(fps),
+                        (int(width), int(height)),
+                    )
+                    if writer.isOpened():
+                        return writer
+                return None
+
+            writer = _open_writer(tmp_video)
+            if writer is None:
+                raise RuntimeError("一時動画の作成に失敗しました。利用可能なコーデックが見つかりません。")
+
+            try:
+                for frame_bgr in frames_bgr:
+                    writer.write(frame_bgr)
+            finally:
+                writer.release()
+
+            scene_list, fps_detected = detect_scenes(
+                tmp_video,
+                method,
+                threshold,
+                min_scene_len_sec,
+                min_scene_len_frames,
+                luma_only,
+            )
+
+        if fps_detected > 0:
+            fps = fps_detected
+
         rows = timecodes_to_dict(scene_list, fps)
         if limit_scenes and limit_scenes > 0:
             rows = rows[:limit_scenes]
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise RuntimeError("OpenCV が動画を開けませんでした。")
-
-        images = []
+        image_tensors = []
         if write_thumbs:
             if not thumbs_dir:
-                base_dir = os.path.dirname(os.path.abspath(video_path))
-                thumbs_dir = os.path.join(base_dir, "scene_thumbs")
+                thumbs_dir = os.path.join(os.getcwd(), "scene_thumbs")
             os.makedirs(thumbs_dir, exist_ok=True)
 
         for row in rows:
             fidx = pick_frame_index(row, representative)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
-            ok, frame = cap.read()
-            if not ok or frame is None:
+            if fidx < 0 or fidx >= len(frames_bgr):
                 continue
+            frame = frames_bgr[fidx]
 
             h, w = frame.shape[:2]
             nw, nh = resize_keep_ar(w, h, max_width, max_height)
             if (nw, nh) != (w, h):
                 frame = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
 
-            images.append(frame_to_tensor_bchw(frame))  # (1,C,H,W)
+            image_tensors.append(frame_to_tensor_bhwc(frame))  # (1,H,W,C)
 
             if write_thumbs:
                 out_name = f"scene_{row['index']:03d}_f{fidx}.jpg"
                 cv2.imwrite(os.path.join(thumbs_dir, out_name), frame)
 
-        cap.release()
-
-        if not images:
+        if not image_tensors:
             # 型整合のためのフォールバック：1x1黒
-            import numpy as np
-
             black = np.zeros((1, 1, 3), dtype=np.uint8)
-            images = [frame_to_tensor_bchw(black)]
+            image_tensors = [frame_to_tensor_bhwc(black)]
 
-        batch = torch.cat(images, dim=0)  # (B,C,H,W)
+        batch = torch.cat(image_tensors, dim=0)  # (B,H,W,C)
 
         scenes_json = json.dumps(
             {
-                "video_path": os.path.abspath(video_path),
+                "video_path": "",
+                "video_info": video_info_json,
                 "fps": fps,
                 "method": method,
                 "threshold": threshold,
@@ -152,4 +223,3 @@ class PySceneDetectToImages:
 
 NODE_CLASS_MAPPINGS["PySceneDetectToImages"] = PySceneDetectToImages
 NODE_DISPLAY_NAME_MAPPINGS["PySceneDetectToImages"] = "PySceneDetect: Scenes → Images"
-
