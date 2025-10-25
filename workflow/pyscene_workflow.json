@@ -1,0 +1,321 @@
+{
+  "id": "18993286-0bab-4b65-bf5d-a44da8346b61",
+  "revision": 0,
+  "last_node_id": 26,
+  "last_link_id": 19,
+  "nodes": [
+    {
+      "id": 20,
+      "type": "VHS_LoadVideo",
+      "pos": [
+        -2128.069565055515,
+        -1791.9590976390728
+      ],
+      "size": [
+        319.16629220891787,
+        868.3025517112084
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "meta_batch",
+          "shape": 7,
+          "type": "VHS_BatchManager",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            14
+          ]
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "video_info",
+          "type": "VHS_VIDEOINFO",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-videohelpersuite",
+        "ver": "1.6.1",
+        "Node name for S&R": "VHS_LoadVideo"
+      },
+      "widgets_values": {
+        "video": "19700121_1803_68f0a77d3ae881918b9af62594cc784f.mp4",
+        "force_rate": 0,
+        "custom_width": 0,
+        "custom_height": 0,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1,
+        "format": "AnimateDiff",
+        "choose video to upload": "image",
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "filename": "19700121_1803_68f0a77d3ae881918b9af62594cc784f.mp4",
+            "type": "input",
+            "format": "video/mp4",
+            "force_rate": 0,
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 0,
+            "skip_first_frames": 0,
+            "select_every_nth": 1
+          }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "PySceneDetectToImages",
+      "pos": [
+        -1693.4898423140799,
+        -1789.6217117000192
+      ],
+      "size": [
+        318.5611328125,
+        338
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video_frames",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "video_info",
+          "type": "VHS_VIDEOINFO",
+          "link": 15
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "scenes_json",
+          "type": "STRING",
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "scene_count",
+          "type": "INT",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "hndrr/Comfyui-SceneDetect",
+        "ver": "06e4137b2d71a5e42faa2062febd4be5f4db0ba2",
+        "Node name for S&R": "PySceneDetectToImages"
+      },
+      "widgets_values": [
+        "content",
+        27,
+        0,
+        15,
+        true,
+        "start",
+        0,
+        0,
+        0,
+        false,
+        ""
+      ]
+    },
+    {
+      "id": 24,
+      "type": "Bjornulf_ShowJson",
+      "pos": [
+        -1261.6547766167037,
+        -1426.7361343051857
+      ],
+      "size": [
+        328.51442980984336,
+        576.7303608019685
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "link": 17
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "bjornulf_custom_nodes",
+        "ver": "1.1.8",
+        "Node name for S&R": "Bjornulf_ShowJson"
+      },
+      "widgets_values": [
+        "\n{\n  \"fps\": 30.0,\n  \"method\": \"content\",\n  \"min_scene_len_frames\": 15,\n  \"representative\": \"start\",\n  \"scenes\": [\n    {\n      \"duration_frames\": 21,\n      \"duration_sec\": 0.7,\n      \"end_frame\": 21,\n      \"end_time\": \"00:00:00.700\",\n      \"fps\": 30.0,\n      \"index\": 1,\n      \"start_frame\": 0,\n      \"start_time\": \"00:00:00.000\"\n    },\n    {\n      \"duration_frames\": 50,\n      \"duration_sec\": 1.6666666666666667,\n      \"end_frame\": 71,\n      \"end_time\": \"00:00:02.367\",\n      \"fps\": 30.0,\n      \"index\": 2,\n      \"start_frame\": 21,\n      \"start_time\": \"00:00:00.700\"\n    },\n    {\n      \"duration_frames\": 20,\n      \"duration_sec\": 0.6666666666666666,\n      \"end_frame\": 91,\n      \"end_time\": \"00:00:03.033\",\n      \"fps\": 30.0,\n      \"index\": 3,\n      \"start_frame\": 71,\n      \"start_time\": \"00:00:02.367\"\n    },\n    {\n      \"duration_frames\": 50,\n      \"duration_sec\": 1.6666666666666667,\n      \"end_frame\": 141,\n      \"end_time\": \"00:00:04.700\",\n      \"fps\": 30.0,\n      \"index\": 4,\n      \"start_frame\": 91,\n      \"start_time\": \"00:00:03.033\"\n    },\n    {\n      \"duration_frames\": 20,\n      \"duration_sec\": 0.6666666666666666,\n      \"end_frame\": 161,\n      \"end_time\": \"00:00:05.367\",\n      \"fps\": 30.0,\n      \"index\": 5,\n      \"start_frame\": 141,\n      \"start_time\": \"00:00:04.700\"\n    },\n    {\n      \"duration_frames\": 25,\n      \"duration_sec\": 0.8333333333333334,\n      \"end_frame\": 186,\n      \"end_time\": \"00:00:06.200\",\n      \"fps\": 30.0,\n      \"index\": 6,\n      \"start_frame\": 161,\n      \"start_time\": \"00:00:05.367\"\n    },\n    {\n      \"duration_frames\": 20,\n      \"duration_sec\": 0.6666666666666666,\n      \"end_frame\": 206,\n      \"end_time\": \"00:00:06.867\",\n      \"fps\": 30.0,\n      \"index\": 7,\n      \"start_frame\": 186,\n      \"start_time\": \"00:00:06.200\"\n    },\n    {\n      \"duration_frames\": 20,\n      \"duration_sec\": 0.6666666666666666,\n      \"end_frame\": 226,\n      \"end_time\": \"00:00:07.533\",\n      \"fps\": 30.0,\n      \"index\": 8,\n      \"start_frame\": 206,\n      \"start_time\": \"00:00:06.867\"\n    },\n    {\n      \"duration_frames\": 30,\n      \"duration_sec\": 1.0,\n      \"end_frame\": 256,\n      \"end_time\": \"00:00:08.533\",\n      \"fps\": 30.0,\n      \"index\": 9,\n      \"start_frame\": 226,\n      \"start_time\": \"00:00:07.533\"\n    },\n    {\n      \"duration_frames\": 44,\n      \"duration_sec\": 1.4666666666666666,\n      \"end_frame\": 300,\n      \"end_time\": \"00:00:10.000\",\n      \"fps\": 30.0,\n      \"index\": 10,\n      \"start_frame\": 256,\n      \"start_time\": \"00:00:08.533\"\n    }\n  ],\n  \"threshold\": 27.0,\n  \"video_info\": {\n    \"loaded_duration\": 10.0,\n    \"loaded_fps\": 30.0,\n    \"loaded_frame_count\": 300,\n    \"loaded_height\": 1280,\n    \"loaded_width\": 704,\n    \"source_duration\": 10.0,\n    \"source_fps\": 30.0,\n    \"source_frame_count\": 300,\n    \"source_height\": 1280,\n    \"source_width\": 704\n  },\n  \"video_path\": \"\"\n}\n"
+      ]
+    },
+    {
+      "id": 25,
+      "type": "easy showAnything",
+      "pos": [
+        -1677.0200449058952,
+        -1275.1382284212411
+      ],
+      "size": [
+        268.2845948403408,
+        90.53412189760502
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "anything",
+          "shape": 7,
+          "type": "*",
+          "link": 18
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.1",
+        "Node name for S&R": "easy showAnything"
+      },
+      "widgets_values": [
+        "10"
+      ]
+    },
+    {
+      "id": 26,
+      "type": "SaveImage",
+      "pos": [
+        -1245.2823053753693,
+        -1791.9035391984505
+      ],
+      "size": [
+        270,
+        270
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 19
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.66",
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "ComfyUI"
+      ]
+    }
+  ],
+  "links": [
+    [
+      14,
+      20,
+      0,
+      22,
+      0,
+      "IMAGE"
+    ],
+    [
+      15,
+      20,
+      3,
+      22,
+      1,
+      "VHS_VIDEOINFO"
+    ],
+    [
+      17,
+      22,
+      1,
+      24,
+      0,
+      "STRING"
+    ],
+    [
+      18,
+      22,
+      2,
+      25,
+      0,
+      "*"
+    ],
+    [
+      19,
+      22,
+      0,
+      26,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.8769226950000055,
+      "offset": [
+        2371.6962871906476,
+        2046.087079151616
+      ]
+    },
+    "frontendVersion": "1.28.7",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}
