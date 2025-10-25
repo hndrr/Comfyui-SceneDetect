@@ -97,7 +97,7 @@ ComfyUI 上で上記ノードが検索・配置できるようになります。
 - ルートの `__init__.py` から `nodes` を参照する ComfyUI 標準構成です。
 - ノード実装は `pyscenedetect_nodes.py` および `utils/` 下のヘルパー群に分割されています。
 
-備考: 現状 `nodes/__init__.py` は `nodes/pyscenedetect_to_images.py` を参照する構成ですが、実装本体は `utils/pyscenedetect_to_images.py` にあります。環境によっては読み込みに差異が出る可能性があります。問題があれば Issue や PR を歓迎します。
+備考: 実装は `nodes/pyscenedetect_to_images.py` にあります。共通処理は `utils/video_ops.py` に分離しています。
 
 ## トラブルシューティング
 
@@ -108,4 +108,3 @@ ComfyUI 上で上記ノードが検索・配置できるようになります。
 ## ライセンス
 
 このリポジトリのコードは、各ファイルのライセンス表記に従います。明記がない場合はリポジトリのオーナーに従います。
-
