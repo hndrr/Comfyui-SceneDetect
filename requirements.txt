@@ -1,0 +1,4 @@
+scenedetect>=0.6,<0.7
+opencv-python>=4.9,<5
+numpy
+torch
