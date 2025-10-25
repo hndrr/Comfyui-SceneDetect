@@ -14,6 +14,7 @@ Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate s
 ## Requirements
 
 - [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite): Provides the `Load Video` node that supplies `IMAGE` batches and `VHS_VIDEOINFO` metadata consumed by this node.
+- [PySceneDetect](https://github.com/Breakthrough/PySceneDetect): Core scene detection engine leveraged by this custom node.
 
 ## Installation
 
@@ -120,4 +121,9 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 
 ## License
 
-Unless otherwise noted in individual files, this project follows the license specified by the repository owner.
+This project is licensed under the MIT License. See `LICENSE` for the complete text. Files that specify a different license are governed by the terms noted within those files.
+
+Third-party notices:
+
+- [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) is distributed under the BSD 3-Clause License. When redistributing binaries or source packages that bundle PySceneDetect, ensure that its copyright notice, license
+  text, and disclaimer are included alongside your distribution.
