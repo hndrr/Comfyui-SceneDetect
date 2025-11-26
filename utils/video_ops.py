@@ -12,9 +12,8 @@ def choose_detector(method: str, threshold: float, min_scene_len: int, luma_only
     if method == "adaptive":
         return AdaptiveDetector(min_scene_len=min_scene_len, luma_only=luma_only)
     if method == "threshold":
-        return ThresholdDetector(
-            threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only
-        )
+        # ThresholdDetector does not support luma_only in PySceneDetect 0.6.x.
+        return ThresholdDetector(threshold=threshold, min_scene_len=min_scene_len)
     return ContentDetector(
         threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only
     )
@@ -89,8 +88,17 @@ def detect_scenes(
         if (min_scene_len_sec and fps > 0)
         else max(0, int(min_scene_len_frames))
     )
-    detector = choose_detector(method, threshold, min_scene_len, luma_only)
     manager = SceneManager()
-    manager.add_detector(detector)
-    manager.detect_scenes(video=video, show_progress=False)
-    return manager.get_scene_list(), fps
+
+    try:
+        detector = choose_detector(method, threshold, min_scene_len, luma_only)
+        manager.add_detector(detector)
+        manager.detect_scenes(video=video, show_progress=False)
+        scene_list = manager.get_scene_list()
+    finally:
+        # Ensure the temp video file is released even if detection raises.
+        release = getattr(video, "release", None)
+        if callable(release):
+            release()
+
+    return scene_list, fps
