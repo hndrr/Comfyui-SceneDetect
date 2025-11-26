@@ -51,7 +51,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
   - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Preferred when FPS information is available.
   - `min_scene_len_frames` (`INT`): Minimum scene length in frames (fallback when FPS is unknown).
-  - `luma_only` (`BOOLEAN`): Force detection on the luma component only.
+  - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold uses color in PySceneDetect 0.6).
 
 - Optional inputs
   - `representative` (`start|middle|end`): Position of the representative frame.
