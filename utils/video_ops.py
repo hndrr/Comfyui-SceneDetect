@@ -97,10 +97,8 @@ def detect_scenes(
         scene_list = manager.get_scene_list()
     finally:
         # Ensure the temp video file is released even if detection raises.
-        if hasattr(video, "release"):
-            video.release()
-        if hasattr(video, "close"):
-            video.close()
-        del video
-    
+        release = getattr(video, "release", None)
+        if callable(release):
+            release()
+
     return scene_list, fps
