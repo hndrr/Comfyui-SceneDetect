@@ -1,5 +1,5 @@
 [project]
-name = "scenedetect"
+name = "comfyui-scenedetect"
 description = "Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate scene boundaries in a video and emit one representative frame per scene as an `IMAGE` batch. It also returns per-scene metadata as JSON (`STRING`) and the total number of detected scenes (`INT`)."
 version = "1.0.0"
 license = {file = "LICENSE"} 
