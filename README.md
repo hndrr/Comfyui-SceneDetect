@@ -51,7 +51,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
   - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Preferred when FPS information is available.
   - `min_scene_len_frames` (`INT`): Minimum scene length in frames (fallback when FPS is unknown).
-  - `luma_only` (`BOOLEAN`): Force detection on the luma component only.
+  - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold uses color in PySceneDetect 0.6).
 
 - Optional inputs
   - `representative` (`start|middle|end`): Position of the representative frame.
@@ -62,7 +62,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `thumbs_dir` (`STRING`): Directory for thumbnails. When empty, `scene_thumbs` is created in the working directory.
 
 - Outputs
-  - `images` (`IMAGE`): Representative frame batch (`(B,C,H,W)`).
+  - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
 
