@@ -93,4 +93,13 @@ def detect_scenes(
     manager = SceneManager()
     manager.add_detector(detector)
     manager.detect_scenes(video=video, show_progress=False)
-    return manager.get_scene_list(), fps
+
+    scene_list = manager.get_scene_list()
+
+    if hasattr(video, "release"):
+        video.release()
+    if hasattr(video, "close"):
+        video.close()
+    del video
+    
+    return scene_list, fps
