@@ -62,7 +62,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `thumbs_dir` (`STRING`): Directory for thumbnails. When empty, `scene_thumbs` is created in the working directory.
 
 - Outputs
-  - `images` (`IMAGE`): Representative frame batch (`(B,C,H,W)`).
+  - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
 
