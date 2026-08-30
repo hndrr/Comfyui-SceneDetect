@@ -4,8 +4,12 @@ import os, json, cv2, torch
 import numpy as np
 
 from ..utils.video_ops import (
+    DETECTION_METHODS,
+    DetectorSettings,
     TensorVideoStream,
     detect_scenes_from_video,
+    detector_optional_input_types,
+    format_scenes_for_llm,
     timecodes_to_dict,
     pick_frame_index,
     resize_keep_ar,
@@ -35,14 +39,23 @@ NODE_DISPLAY_NAME_MAPPINGS: Dict[str, str] = {}
 class PySceneDetectToImages:
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+        optional = {
+            "representative": (["start", "middle", "end"], {"default": "start"}),
+            "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "write_thumbs": ("BOOLEAN", {"default": False}),
+            "thumbs_dir": (
+                "STRING",
+                {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"},
+            ),
+        }
+        optional.update(detector_optional_input_types())
         return {
             "required": {
                 "image": (IMAGE_OR_LATENT, {}),
                 "video_info": ("VHS_VIDEOINFO", {}),
-                "method": (
-                    ["content", "adaptive", "threshold"],
-                    {"default": "content"},
-                ),
+                "method": (DETECTION_METHODS, {"default": "content"}),
                 "threshold": (
                     "FLOAT",
                     {"default": 27.0, "min": 0.0, "max": 1000.0, "step": 0.1},
@@ -54,18 +67,18 @@ class PySceneDetectToImages:
                 "min_scene_len_frames": ("INT", {"default": 15, "min": 0, "step": 1}),
                 "luma_only": ("BOOLEAN", {"default": True}),
             },
-            "optional": {
-                "representative": (["start", "middle", "end"], {"default": "start"}),
-                "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "write_thumbs": ("BOOLEAN", {"default": False}),
-                "thumbs_dir": ("STRING", {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"}),
-            },
+            "optional": optional,
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING")
+    RETURN_NAMES = (
+        "images",
+        "scenes_json",
+        "scene_count",
+        "scenes_text",
+        "scene_prompts",
+    )
+    OUTPUT_IS_LIST = (False, False, False, False, True)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -84,6 +97,8 @@ class PySceneDetectToImages:
         limit_scenes: int = 0,
         write_thumbs: bool = False,
         thumbs_dir: str = "",
+        prompt_template: str = "",
+        **detector_options,
     ):
         if isinstance(image, dict) and "samples" in image:
             raise ValueError("LATENT tensors from VAE outputs are not supported. Disconnect the VAE from the Load Video node.")
@@ -106,6 +121,7 @@ class PySceneDetectToImages:
             return val
 
         video_info_json = {k: _jsonable(v) for k, v in video_info.items()}
+        settings = DetectorSettings.from_mapping(detector_options)
 
         video = TensorVideoStream(image, fps)
         scene_list, fps_detected = detect_scenes_from_video(
@@ -115,6 +131,7 @@ class PySceneDetectToImages:
             min_scene_len_sec,
             min_scene_len_frames,
             luma_only,
+            settings=settings,
         )
 
         if fps_detected > 0:
@@ -153,6 +170,7 @@ class PySceneDetectToImages:
             image_tensors = [frame_to_tensor_bhwc(black)]
 
         batch = torch.cat(image_tensors, dim=0)  # (B,H,W,C)
+        scenes_text, scene_prompts = format_scenes_for_llm(rows, prompt_template)
 
         scenes_json = json.dumps(
             {
@@ -173,7 +191,7 @@ class PySceneDetectToImages:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows))
+        return (batch, scenes_json, len(rows), scenes_text, scene_prompts)
 
 
 NODE_CLASS_MAPPINGS["PySceneDetectToImages"] = PySceneDetectToImages

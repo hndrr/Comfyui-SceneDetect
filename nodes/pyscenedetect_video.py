@@ -5,40 +5,72 @@ import numpy as np
 import folder_paths
 
 from ..utils.video_ops import (
+    DETECTION_METHODS,
+    DetectorSettings,
     detect_scenes,
+    detector_optional_input_types,
+    format_scenes_for_llm,
     frame_to_tensor_bhwc,
+    load_video_from_file,
     pick_frame_index,
     read_video_frames,
     resize_keep_ar,
+    sanitize_clip_name,
+    split_scene_clips,
     timecodes_to_dict,
     video_source_path,
 )
 
 
-def _resolve_thumbnail_path(output_root: str, relative_path: str) -> str:
+def _resolve_output_path(output_root: str, relative_path: str) -> str:
     if not relative_path or os.path.isabs(relative_path) or ntpath.isabs(relative_path):
         raise ValueError(
-            "Thumbnail path must be relative to ComfyUI's output directory."
+            "Path must be relative to ComfyUI's output directory."
         )
     if ".." in relative_path.replace("\\", "/").split("/"):
-        raise ValueError("Thumbnail path must not contain '..'.")
+        raise ValueError("Path must not contain '..'.")
 
     path = os.path.realpath(os.path.abspath(os.path.join(output_root, relative_path)))
     if not folder_paths.is_within_directory(output_root, path):
-        raise ValueError("Thumbnail path must stay inside ComfyUI's output directory.")
+        raise ValueError("Path must stay inside ComfyUI's output directory.")
     return path
+
+
+# Keep the previous helper name for existing tests.
+_resolve_thumbnail_path = _resolve_output_path
 
 
 class PySceneDetectVideo:
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+        optional = {
+            "representative": (["start", "middle", "end"], {"default": "start"}),
+            "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "write_thumbs": ("BOOLEAN", {"default": False}),
+            "thumbs_dir": (
+                "STRING",
+                {
+                    "default": "",
+                    "placeholder": "Relative to ComfyUI output; default: scene_thumbs",
+                },
+            ),
+            "split_clips": ("BOOLEAN", {"default": False}),
+            "split_dir": (
+                "STRING",
+                {
+                    "default": "",
+                    "placeholder": "Relative to ComfyUI output; default: scene_clips",
+                },
+            ),
+            "split_reencode": ("BOOLEAN", {"default": False}),
+        }
+        optional.update(detector_optional_input_types())
         return {
             "required": {
                 "video": ("VIDEO", {}),
-                "method": (
-                    ["content", "adaptive", "threshold"],
-                    {"default": "content"},
-                ),
+                "method": (DETECTION_METHODS, {"default": "content"}),
                 "threshold": (
                     "FLOAT",
                     {"default": 27.0, "min": 0.0, "max": 1000.0, "step": 0.1},
@@ -50,18 +82,19 @@ class PySceneDetectVideo:
                 "min_scene_len_frames": ("INT", {"default": 15, "min": 0, "step": 1}),
                 "luma_only": ("BOOLEAN", {"default": True}),
             },
-            "optional": {
-                "representative": (["start", "middle", "end"], {"default": "start"}),
-                "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "write_thumbs": ("BOOLEAN", {"default": False}),
-                "thumbs_dir": ("STRING", {"default": "", "placeholder": "Relative to ComfyUI output; default: scene_thumbs"}),
-            },
+            "optional": optional,
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING", "VIDEO")
+    RETURN_NAMES = (
+        "images",
+        "scenes_json",
+        "scene_count",
+        "scenes_text",
+        "scene_prompts",
+        "videos",
+    )
+    OUTPUT_IS_LIST = (False, False, False, False, True, True)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -79,6 +112,11 @@ class PySceneDetectVideo:
         limit_scenes: int = 0,
         write_thumbs: bool = False,
         thumbs_dir: str = "",
+        split_clips: bool = False,
+        split_dir: str = "",
+        split_reencode: bool = False,
+        prompt_template: str = "",
+        **detector_options,
     ):
         fps = float(video.get_frame_rate())
         if fps <= 0:
@@ -88,7 +126,10 @@ class PySceneDetectVideo:
         frame_count = video.get_frame_count()
         video_duration = video.get_duration()
         start_time, trim_duration = video.get_active_trim_window()
+        settings = DetectorSettings.from_mapping(detector_options)
+        output_root = folder_paths.get_output_directory()
 
+        videos = []
         with video_source_path(video.get_stream_source()) as video_path:
             scene_list, fps_detected = detect_scenes(
                 video_path,
@@ -99,22 +140,36 @@ class PySceneDetectVideo:
                 luma_only,
                 start_time,
                 trim_duration,
+                settings=settings,
             )
             if fps_detected > 0:
                 fps = fps_detected
 
-            rows = timecodes_to_dict(scene_list, fps)
             if limit_scenes and limit_scenes > 0:
-                rows = rows[:limit_scenes]
+                scene_list = scene_list[:limit_scenes]
+            rows = timecodes_to_dict(scene_list, fps)
 
             frame_indices = [pick_frame_index(row, representative) for row in rows]
             frames = read_video_frames(video_path, frame_indices)
 
+            if split_clips and scene_list:
+                clip_subdir = split_dir.strip() or "scene_clips"
+                clip_dir = _resolve_output_path(output_root, clip_subdir)
+                clip_paths = split_scene_clips(
+                    video_path,
+                    scene_list,
+                    clip_dir,
+                    video_name=sanitize_clip_name(video_path),
+                    reencode=split_reencode,
+                )
+                for row, clip_path in zip(rows, clip_paths):
+                    row["clip_path"] = clip_path
+                videos = [load_video_from_file(path) for path in clip_paths]
+
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
-        output_root = folder_paths.get_output_directory()
         if write_thumbs:
-            thumbnail_dir = _resolve_thumbnail_path(output_root, thumbnail_subdir)
+            thumbnail_dir = _resolve_output_path(output_root, thumbnail_subdir)
             os.makedirs(thumbnail_dir, exist_ok=True)
 
         for row, frame_index in zip(rows, frame_indices):
@@ -135,7 +190,7 @@ class PySceneDetectVideo:
 
             if write_thumbs:
                 out_name = f"scene_{row['index']:03d}_f{frame_index}.jpg"
-                out_path = _resolve_thumbnail_path(
+                out_path = _resolve_output_path(
                     output_root, os.path.join(thumbnail_subdir, out_name)
                 )
                 cv2.imwrite(out_path, frame)
@@ -159,6 +214,7 @@ class PySceneDetectVideo:
             "trim_start_sec": start_time,
             "trim_duration_sec": trim_duration,
         }
+        scenes_text, scene_prompts = format_scenes_for_llm(rows, prompt_template)
         scenes_json = json.dumps(
             {
                 "video_path": "",
@@ -178,7 +234,7 @@ class PySceneDetectVideo:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows))
+        return (batch, scenes_json, len(rows), scenes_text, scene_prompts, videos)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}
