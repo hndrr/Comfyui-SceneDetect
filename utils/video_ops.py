@@ -2,7 +2,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
 from fractions import Fraction
-import math
 import os
 import re
 import tempfile
@@ -179,7 +178,7 @@ def detector_optional_input_types() -> Dict[str, Any]:
             "FLOAT",
             {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.05},
         ),
-        "kernel_size": ("INT", {"default": 0, "min": 0, "step": 1}),
+        "kernel_size": ("INT", {"default": 0, "min": 0, "step": 2}),
         "hash_threshold": (
             "FLOAT",
             {"default": 0.395, "min": 0.0, "max": 1.0, "step": 0.001},
@@ -207,6 +206,15 @@ def detector_optional_input_types() -> Dict[str, Any]:
     }
 
 
+def normalized_kernel_size(value: int) -> int | None:
+    size = int(value)
+    if size < 3:
+        return None
+    if size % 2 == 0:
+        size += 1
+    return size
+
+
 def choose_detector(
     method: str,
     threshold: float,
@@ -221,7 +229,7 @@ def choose_detector(
         delta_lum=options.delta_lum,
         delta_edges=options.delta_edges,
     )
-    kernel_size = options.kernel_size if options.kernel_size >= 3 else None
+    kernel_size = normalized_kernel_size(options.kernel_size)
 
     if method == "adaptive":
         return AdaptiveDetector(
@@ -432,6 +440,23 @@ def sanitize_clip_name(name: str) -> str:
     return cleaned or "scene"
 
 
+def _collect_scene_clip_paths(
+    output_dir: str, clip_name: str, scene_count: int
+) -> List[str]:
+    pattern = re.compile(rf"^{re.escape(clip_name)}-Scene-(\d+)\.mp4$")
+    found: List[Tuple[int, str]] = []
+    for name in os.listdir(output_dir):
+        match = pattern.match(name)
+        if match:
+            found.append((int(match.group(1)), os.path.join(output_dir, name)))
+    found.sort(key=lambda item: item[0])
+    if len(found) != scene_count:
+        raise RuntimeError(
+            f"Expected {scene_count} scene clips in {output_dir}, found {len(found)}."
+        )
+    return [path for _, path in found]
+
+
 def split_scene_clips(
     video_path: str,
     scene_list: List[Tuple[FrameTimecode, FrameTimecode]],
@@ -448,29 +473,31 @@ def split_scene_clips(
 
     os.makedirs(output_dir, exist_ok=True)
     clip_name = sanitize_clip_name(video_name)
-    ret = split_video_ffmpeg(
-        video_path,
-        scene_list,
-        output_dir=output_dir,
-        output_file_template="$VIDEO_NAME-Scene-$SCENE_NUMBER.mp4",
-        video_name=clip_name,
-        arg_override=FFMPEG_REENCODE_ARGS if reencode else FFMPEG_COPY_ARGS,
-        show_progress=False,
-        show_output=False,
-    )
-    if ret != 0:
-        raise RuntimeError(f"ffmpeg failed to split scene clips (exit code {ret}).")
-
-    width = max(3, math.floor(math.log(len(scene_list), 10)) + 1)
-    paths: List[str] = []
-    for index in range(len(scene_list)):
-        path = os.path.join(
-            output_dir, f"{clip_name}-Scene-{index + 1:0{width}d}.mp4"
+    attempts = [True] if reencode else [False, True]
+    last_error = "ffmpeg failed to split scene clips."
+    for attempt_reencode in attempts:
+        ret = split_video_ffmpeg(
+            video_path,
+            scene_list,
+            output_dir=output_dir,
+            output_file_template="$VIDEO_NAME-Scene-$SCENE_NUMBER.mp4",
+            video_name=clip_name,
+            arg_override=(
+                FFMPEG_REENCODE_ARGS if attempt_reencode else FFMPEG_COPY_ARGS
+            ),
+            show_progress=False,
+            show_output=False,
         )
-        if not os.path.isfile(path):
-            raise RuntimeError(f"Expected scene clip was not created: {path}")
-        paths.append(path)
-    return paths
+        if ret != 0:
+            last_error = f"ffmpeg failed to split scene clips (exit code {ret})."
+            continue
+        try:
+            return _collect_scene_clip_paths(
+                output_dir, clip_name, len(scene_list)
+            )
+        except RuntimeError as exc:
+            last_error = str(exc)
+    raise RuntimeError(last_error)
 
 
 def load_video_from_file(path: str):
