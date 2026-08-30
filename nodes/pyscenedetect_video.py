@@ -18,8 +18,10 @@ from ..utils.video_ops import (
     sanitize_clip_name,
     split_scene_clips,
     timecodes_to_dict,
+    unpack_method_input,
     video_source_path,
 )
+from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
 
 
 def _resolve_output_path(output_root: str, relative_path: str) -> str:
@@ -40,62 +42,103 @@ def _resolve_output_path(output_root: str, relative_path: str) -> str:
 _resolve_thumbnail_path = _resolve_output_path
 
 
-class PySceneDetectVideo:
-    @classmethod
-    def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
-        optional = {
-            "show_all_settings": ("BOOLEAN", {"default": False}),
-            "representative": (["start", "middle", "end"], {"default": "start"}),
-            "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "write_thumbs": ("BOOLEAN", {"default": False}),
-            "thumbs_dir": (
-                "STRING",
-                {
-                    "default": "",
-                    "placeholder": "Relative to ComfyUI output; default: scene_thumbs",
-                },
-            ),
-            "split_clips": ("BOOLEAN", {"default": False}),
-            "split_reencode": ("BOOLEAN", {"default": False}),
-        }
-        optional.update(detector_optional_input_types())
-        return {
-            "required": {
-                "video": ("VIDEO", {}),
-                "method": (DETECTION_METHODS, {"default": "content"}),
-                "threshold": (
-                    "FLOAT",
-                    {"default": 27.0, "min": 0.0, "max": 1000.0, "step": 0.1},
-                ),
-                "min_scene_len_sec": (
-                    "FLOAT",
-                    {"default": 0.0, "min": 0.0, "step": 0.05},
-                ),
-                "min_scene_len_frames": ("INT", {"default": 15, "min": 0, "step": 1}),
-                "luma_only": ("BOOLEAN", {"default": True}),
-            },
-            "optional": optional,
-        }
+class PySceneDetectVideo(_NODE_BASE):
+    # V1 attributes only when comfy_api is missing. Overriding INPUT_TYPES /
+    # FUNCTION on io.ComfyNode hides DynamicCombo and skips execute().
+    if io is None:
+        FUNCTION = "run"
+        RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING", "VIDEO")
+        RETURN_NAMES = (
+            "images",
+            "scenes_json",
+            "scene_count",
+            "all_scenes_text",
+            "per_scene_prompt_list",
+            "videos",
+        )
+        OUTPUT_IS_LIST = (False, False, False, False, True, True)
+        CATEGORY = "Video/PySceneDetect"
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING", "VIDEO")
-    RETURN_NAMES = (
-        "images",
-        "scenes_json",
-        "scene_count",
-        "all_scenes_text",
-        "per_scene_prompt_list",
-        "videos",
-    )
-    OUTPUT_IS_LIST = (False, False, False, False, True, True)
-    FUNCTION = "run"
-    CATEGORY = "Video/PySceneDetect"
+        @classmethod
+        def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+            optional = {
+                "representative": (["start", "middle", "end"], {"default": "start"}),
+                "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "write_thumbs": ("BOOLEAN", {"default": False}),
+                "thumbs_dir": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Relative to ComfyUI output; default: scene_thumbs",
+                    },
+                ),
+                "split_clips": ("BOOLEAN", {"default": False}),
+                "split_reencode": ("BOOLEAN", {"default": False}),
+            }
+            optional.update(detector_optional_input_types())
+            return {
+                "required": {
+                    "video": ("VIDEO", {}),
+                    "method": (DETECTION_METHODS, {"default": "content"}),
+                    "threshold": (
+                        "FLOAT",
+                        {"default": 27.0, "min": 0.0, "max": 1000.0, "step": 0.1},
+                    ),
+                    "min_scene_len_sec": (
+                        "FLOAT",
+                        {"default": 0.0, "min": 0.0, "step": 0.05},
+                    ),
+                    "min_scene_len_frames": (
+                        "INT",
+                        {"default": 15, "min": 0, "step": 1},
+                    ),
+                    "luma_only": ("BOOLEAN", {"default": True}),
+                },
+                "optional": optional,
+            }
+
+    @classmethod
+    def define_schema(cls):
+        if io is None:
+            raise RuntimeError("ComfyUI V3 API is required for DynamicCombo.")
+        return io.Schema(
+            node_id="PySceneDetectVideo",
+            display_name="PySceneDetect: Video → Scenes",
+            category="Video/PySceneDetect",
+            inputs=[
+                io.Video.Input("video"),
+                method_dynamic_combo(),
+                *common_scene_inputs(include_split=True),
+            ],
+            outputs=[
+                io.Image.Output("images"),
+                io.String.Output("scenes_json"),
+                io.Int.Output("scene_count"),
+                io.String.Output("all_scenes_text"),
+                io.String.Output("per_scene_prompt_list", is_output_list=True),
+                io.Video.Output("videos", is_output_list=True),
+            ],
+        )
+
+    @classmethod
+    def execute(cls, video, method, **kwargs):
+        results = cls().run(
+            video,
+            method,
+            threshold=kwargs.pop("threshold", 27.0),
+            min_scene_len_sec=kwargs.pop("min_scene_len_sec", 0.0),
+            min_scene_len_frames=kwargs.pop("min_scene_len_frames", 15),
+            luma_only=kwargs.pop("luma_only", True),
+            **kwargs,
+        )
+        return io.NodeOutput(*results)
 
     def run(
         self,
         video: Any,
-        method: str,
+        method: Any,
         threshold: float,
         min_scene_len_sec: float,
         min_scene_len_frames: int,
@@ -111,6 +154,9 @@ class PySceneDetectVideo:
         prompt_template: str = "",
         **detector_options,
     ):
+        method, threshold, luma_only, detector_options = unpack_method_input(
+            method, threshold, luma_only, detector_options
+        )
         fps = float(video.get_frame_rate())
         if fps <= 0:
             raise ValueError("video does not contain a valid FPS value.")

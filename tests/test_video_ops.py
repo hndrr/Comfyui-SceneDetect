@@ -28,6 +28,7 @@ from utils.video_ops import (
     sanitize_clip_name,
     split_scene_clips,
     timecodes_to_dict,
+    unpack_method_input,
 )
 
 
@@ -317,6 +318,59 @@ class VideoOpsTests(unittest.TestCase):
             for clip in clips:
                 self.assertTrue(Path(clip).is_file())
                 self.assertGreater(Path(clip).stat().st_size, 0)
+
+    def test_unpack_method_input_passes_through_a_plain_name(self):
+        method, threshold, luma_only, extra = unpack_method_input(
+            "hash",
+            threshold=27.0,
+            luma_only=True,
+            extra={"hash_threshold": 0.2},
+        )
+
+        self.assertEqual(method, "hash")
+        self.assertEqual(threshold, 27.0)
+        self.assertTrue(luma_only)
+        self.assertEqual(extra, {"hash_threshold": 0.2})
+
+    def test_unpack_method_input_flattens_a_dynamic_combo_dict(self):
+        method, threshold, luma_only, extra = unpack_method_input(
+            {
+                "method": "content",
+                "threshold": 12.5,
+                "luma_only": False,
+                "delta_hue": 2.0,
+                "kernel_size": 5,
+            },
+            threshold=27.0,
+            luma_only=True,
+        )
+
+        self.assertEqual(method, "content")
+        self.assertEqual(threshold, 12.5)
+        self.assertFalse(luma_only)
+        self.assertEqual(extra, {"delta_hue": 2.0, "kernel_size": 5})
+
+    def test_unpack_method_input_keeps_hash_threshold_out_of_content_threshold(self):
+        method, threshold, luma_only, extra = unpack_method_input(
+            {
+                "method": "hash",
+                "hash_threshold": 0.4,
+                "hash_size": 8,
+                "hash_lowpass": 2,
+            }
+        )
+
+        self.assertEqual(method, "hash")
+        self.assertEqual(threshold, 27.0)
+        self.assertTrue(luma_only)
+        self.assertEqual(
+            extra,
+            {
+                "hash_threshold": 0.4,
+                "hash_size": 8,
+                "hash_lowpass": 2,
+            },
+        )
 
 
 if __name__ == "__main__":

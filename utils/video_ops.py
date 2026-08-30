@@ -160,6 +160,25 @@ class TensorVideoStream(VideoStream):
         self._next_frame = min(frame, len(self._frames))
 
 
+def unpack_method_input(
+    method: Any,
+    threshold: float = 27.0,
+    luma_only: bool = True,
+    extra: Dict[str, Any] | None = None,
+) -> Tuple[str, float, bool, Dict[str, Any]]:
+    """Flatten a V3 DynamicCombo `method` dict, or pass through a plain method name."""
+    extras = dict(extra or {})
+    if isinstance(method, dict):
+        selected = method.get("method", "content")
+        extras.update({key: value for key, value in method.items() if key != "method"})
+        method = selected
+    if "threshold" in extras:
+        threshold = extras.pop("threshold")
+    if "luma_only" in extras:
+        luma_only = extras.pop("luma_only")
+    return str(method or "content"), float(threshold), bool(luma_only), extras
+
+
 def detector_optional_input_types() -> Dict[str, Any]:
     return {
         "adaptive_threshold": (
