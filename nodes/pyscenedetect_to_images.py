@@ -14,7 +14,9 @@ from ..utils.video_ops import (
     pick_frame_index,
     resize_keep_ar,
     frame_to_tensor_bhwc,
+    unpack_method_input,
 )
+from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
 
 
 class _MultiInput(str):
@@ -36,58 +38,98 @@ NODE_CLASS_MAPPINGS: Dict[str, Any] = {}
 NODE_DISPLAY_NAME_MAPPINGS: Dict[str, str] = {}
 
 
-class PySceneDetectToImages:
-    @classmethod
-    def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
-        optional = {
-            "show_all_settings": ("BOOLEAN", {"default": False}),
-            "representative": (["start", "middle", "end"], {"default": "start"}),
-            "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "write_thumbs": ("BOOLEAN", {"default": False}),
-            "thumbs_dir": (
-                "STRING",
-                {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"},
-            ),
-        }
-        optional.update(detector_optional_input_types())
-        return {
-            "required": {
-                "image": (IMAGE_OR_LATENT, {}),
-                "video_info": ("VHS_VIDEOINFO", {}),
-                "method": (DETECTION_METHODS, {"default": "content"}),
-                "threshold": (
-                    "FLOAT",
-                    {"default": 27.0, "min": 0.0, "max": 1000.0, "step": 0.1},
-                ),
-                "min_scene_len_sec": (
-                    "FLOAT",
-                    {"default": 0.0, "min": 0.0, "step": 0.05},
-                ),
-                "min_scene_len_frames": ("INT", {"default": 15, "min": 0, "step": 1}),
-                "luma_only": ("BOOLEAN", {"default": True}),
-            },
-            "optional": optional,
-        }
+class PySceneDetectToImages(_NODE_BASE):
+    if io is None:
+        FUNCTION = "run"
+        RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING")
+        RETURN_NAMES = (
+            "images",
+            "scenes_json",
+            "scene_count",
+            "all_scenes_text",
+            "per_scene_prompt_list",
+        )
+        OUTPUT_IS_LIST = (False, False, False, False, True)
+        CATEGORY = "Video/PySceneDetect"
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING")
-    RETURN_NAMES = (
-        "images",
-        "scenes_json",
-        "scene_count",
-        "all_scenes_text",
-        "per_scene_prompt_list",
-    )
-    OUTPUT_IS_LIST = (False, False, False, False, True)
-    FUNCTION = "run"
-    CATEGORY = "Video/PySceneDetect"
+        @classmethod
+        def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+            optional = {
+                "representative": (["start", "middle", "end"], {"default": "start"}),
+                "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "write_thumbs": ("BOOLEAN", {"default": False}),
+                "thumbs_dir": (
+                    "STRING",
+                    {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"},
+                ),
+            }
+            optional.update(detector_optional_input_types())
+            return {
+                "required": {
+                    "image": (IMAGE_OR_LATENT, {}),
+                    "video_info": ("VHS_VIDEOINFO", {}),
+                    "method": (DETECTION_METHODS, {"default": "content"}),
+                    "threshold": (
+                        "FLOAT",
+                        {"default": 27.0, "min": 0.0, "max": 1000.0, "step": 0.1},
+                    ),
+                    "min_scene_len_sec": (
+                        "FLOAT",
+                        {"default": 0.0, "min": 0.0, "step": 0.05},
+                    ),
+                    "min_scene_len_frames": (
+                        "INT",
+                        {"default": 15, "min": 0, "step": 1},
+                    ),
+                    "luma_only": ("BOOLEAN", {"default": True}),
+                },
+                "optional": optional,
+            }
+
+    @classmethod
+    def define_schema(cls):
+        if io is None:
+            raise RuntimeError("ComfyUI V3 API is required for DynamicCombo.")
+        return io.Schema(
+            node_id="PySceneDetectToImages",
+            display_name="PySceneDetect: Scenes → Images (Legacy VHS)",
+            category="Video/PySceneDetect",
+            inputs=[
+                io.Image.Input("image"),
+                io.Custom("VHS_VIDEOINFO").Input("video_info"),
+                method_dynamic_combo(),
+                *common_scene_inputs(include_split=False),
+            ],
+            outputs=[
+                io.Image.Output("images"),
+                io.String.Output("scenes_json"),
+                io.Int.Output("scene_count"),
+                io.String.Output("all_scenes_text"),
+                io.String.Output("per_scene_prompt_list", is_output_list=True),
+            ],
+        )
+
+    @classmethod
+    def execute(cls, image, video_info, method, **kwargs):
+        results = cls().run(
+            image,
+            video_info,
+            method,
+            threshold=kwargs.pop("threshold", 27.0),
+            min_scene_len_sec=kwargs.pop("min_scene_len_sec", 0.0),
+            min_scene_len_frames=kwargs.pop("min_scene_len_frames", 15),
+            luma_only=kwargs.pop("luma_only", True),
+            **kwargs,
+        )
+        return io.NodeOutput(*results)
 
     def run(
         self,
         image: torch.Tensor,
         video_info: Dict[str, Any],
-        method: str,
+        method: Any,
         threshold: float,
         min_scene_len_sec: float,
         min_scene_len_frames: int,
@@ -101,6 +143,9 @@ class PySceneDetectToImages:
         prompt_template: str = "",
         **detector_options,
     ):
+        method, threshold, luma_only, detector_options = unpack_method_input(
+            method, threshold, luma_only, detector_options
+        )
         if isinstance(image, dict) and "samples" in image:
             raise ValueError("LATENT tensors from VAE outputs are not supported. Disconnect the VAE from the Load Video node.")
         if not isinstance(image, torch.Tensor) or image.ndim != 4 or image.shape[0] == 0:
