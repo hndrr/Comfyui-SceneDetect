@@ -7,11 +7,13 @@ from scenedetect import FrameTimecode, SceneManager, open_video
 from scenedetect.detectors import ContentDetector, AdaptiveDetector, ThresholdDetector
 
 
-def choose_detector(method: str, threshold: float, min_scene_len: int, luma_only: bool):
+def choose_detector(
+    method: str, threshold: float, min_scene_len: int | float, luma_only: bool
+):
     if method == "adaptive":
         return AdaptiveDetector(min_scene_len=min_scene_len, luma_only=luma_only)
     if method == "threshold":
-        # ThresholdDetector does not support luma_only in PySceneDetect 0.6.x.
+        # ThresholdDetector does not support luma_only in PySceneDetect 0.7.x.
         return ThresholdDetector(threshold=threshold, min_scene_len=min_scene_len)
     return ContentDetector(
         threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only
@@ -83,8 +85,8 @@ def detect_scenes(
     video = open_video(video_path)
     fps = float(getattr(video, "frame_rate", 0.0))
     min_scene_len = (
-        max(0, int(round(min_scene_len_sec * fps)))
-        if (min_scene_len_sec and fps > 0)
+        max(0.0, float(min_scene_len_sec))
+        if fps > 0
         else max(0, int(min_scene_len_frames))
     )
     manager = SceneManager()

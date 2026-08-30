@@ -1,6 +1,8 @@
 import tempfile
 import unittest
+from fractions import Fraction
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -21,6 +23,28 @@ class VideoOpsTests(unittest.TestCase):
         self.assertEqual(rows[0]["duration_frames"], 15)
         self.assertEqual(rows[0]["duration_sec"], 1.5)
         self.assertEqual(rows[0]["start_time"], "00:00:01.000")
+
+    def test_detect_scenes_preserves_seconds_for_vfr_video(self):
+        video = Mock(frame_rate=Fraction(24000, 1001))
+        manager = Mock()
+        manager.get_scene_list.return_value = []
+        detector = object()
+
+        with (
+            patch("utils.video_ops.open_video", return_value=video),
+            patch("utils.video_ops.SceneManager", return_value=manager),
+            patch("utils.video_ops.choose_detector", return_value=detector) as choose,
+        ):
+            detect_scenes(
+                "vfr.mp4",
+                method="content",
+                threshold=27.0,
+                min_scene_len_sec=1.25,
+                min_scene_len_frames=300,
+                luma_only=False,
+            )
+
+        choose.assert_called_once_with("content", 27.0, 1.25, False)
 
     def test_detect_scenes_finds_hard_cut(self):
         with tempfile.TemporaryDirectory() as tmpdir:
