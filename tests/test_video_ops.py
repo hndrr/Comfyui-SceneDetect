@@ -375,11 +375,10 @@ class VideoOpsTests(unittest.TestCase):
     def test_unpack_method_input_unwraps_show_all_settings_false(self):
         method, threshold, luma_only, extra = unpack_method_input(
             {
-                "show_all_settings": "false",
-                "method": {
-                    "method": "hash",
+                "method": "hash",
+                "show_all_settings": {
+                    "show_all_settings": "false",
                     "hash_threshold": 0.3,
-                    "hash_size": 8,
                 },
             }
         )
@@ -387,23 +386,28 @@ class VideoOpsTests(unittest.TestCase):
         self.assertEqual(method, "hash")
         self.assertEqual(threshold, 27.0)
         self.assertTrue(luma_only)
-        self.assertEqual(extra, {"hash_threshold": 0.3, "hash_size": 8})
+        self.assertEqual(extra, {"hash_threshold": 0.3})
 
-    def test_unpack_method_input_unwraps_show_all_settings_true(self):
+    def test_unpack_method_input_unwraps_show_all_settings_true_for_same_method(self):
         method, threshold, luma_only, extra = unpack_method_input(
             {
-                "show_all_settings": "true",
-                "method": "adaptive",
-                "adaptive_threshold": 4.0,
-                "luma_only": False,
-                "threshold": 27.0,
+                "method": "content",
+                "show_all_settings": {
+                    "show_all_settings": "true",
+                    "threshold": 12.5,
+                    "luma_only": False,
+                    "delta_hue": 2.0,
+                    "kernel_size": 5,
+                },
             }
         )
 
-        self.assertEqual(method, "adaptive")
-        self.assertEqual(threshold, 27.0)
+        self.assertEqual(method, "content")
+        self.assertEqual(threshold, 12.5)
         self.assertFalse(luma_only)
-        self.assertEqual(extra, {"adaptive_threshold": 4.0})
+        self.assertEqual(extra, {"delta_hue": 2.0, "kernel_size": 5})
+        self.assertNotIn("hash_threshold", extra)
+        self.assertNotIn("hist_threshold", extra)
 
     def test_unpack_method_input_drops_v1_show_all_settings_flag(self):
         method, threshold, luma_only, extra = unpack_method_input(

@@ -118,15 +118,10 @@
         "Node name for S&R": "PySceneDetectToImages"
       },
       "widgets_values": [
-        "false",
         "content",
+        "false",
         27.0,
         true,
-        1.0,
-        1.0,
-        1.0,
-        0.0,
-        0,
         0.0,
         15,
         "start",

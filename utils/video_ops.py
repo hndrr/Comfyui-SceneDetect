@@ -168,16 +168,26 @@ def unpack_method_input(
 ) -> Tuple[str, float, bool, Dict[str, Any]]:
     """Flatten a V3 DynamicCombo `method` dict, or pass through a plain method name."""
     extras = dict(extra or {})
-    if isinstance(method, dict) and "show_all_settings" in method:
-        extras.update(
-            {key: value for key, value in method.items() if key != "show_all_settings"}
-        )
-        method = extras.pop("method", "content")
+
+    def absorb(payload: Any) -> Any:
+        if not isinstance(payload, dict):
+            return payload
+        payload = dict(payload)
+        nested_settings = payload.pop("show_all_settings", None)
+        nested_method = payload.pop("method", None)
+        extras.update(payload)
+        if isinstance(nested_settings, dict):
+            absorbed = absorb(nested_settings)
+            if nested_method is None:
+                nested_method = absorbed
+        elif nested_method is not None:
+            nested_method = absorb(nested_method)
+        return nested_method
+
+    absorbed = absorb(method)
+    if absorbed is not None:
+        method = absorbed
     extras.pop("show_all_settings", None)
-    if isinstance(method, dict):
-        selected = method.get("method", "content")
-        extras.update({key: value for key, value in method.items() if key != "method"})
-        method = selected
     if "threshold" in extras:
         threshold = extras.pop("threshold")
     if "luma_only" in extras:
