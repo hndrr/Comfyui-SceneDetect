@@ -14,9 +14,12 @@ Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate s
 ## Requirements
 
 - [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite): Provides the `Load Video` node that supplies `IMAGE` batches and `VHS_VIDEOINFO` metadata consumed by this node.
-- [PySceneDetect](https://github.com/Breakthrough/PySceneDetect): Core scene detection engine leveraged by this custom node.
+- Python 3.10 or newer
+- [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect): Core scene detection engine leveraged by this custom node.
 
 ## Installation
+
+Installing from ComfyUI Manager also installs the Python dependencies listed below. For a manual clone:
 
 1. Place this repository under the ComfyUI `custom_nodes` directory.
    - Example: `ComfyUI/custom_nodes/Comfyui-SceneDetect`
@@ -27,9 +30,11 @@ Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate s
    ```
 
    The `requirements.txt` file includes:
-   - `scenedetect>=0.6,<0.7`
-   - `opencv-python>=4.9,<5`
+   - `scenedetect-headless>=0.7.1,<0.8`
+   - `opencv-python-headless>=4.9`
    - `numpy`
+
+   `scenedetect-headless` provides the same `scenedetect` Python module without GUI dependencies.
 
    PyTorch (`torch`) ships with the standard ComfyUI installation, so it is intentionally not listed here.
 
@@ -115,7 +120,7 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 
 - Latent batches: If a VAE is connected to `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
 - Missing FPS in `video_info`: Review the `Load Video` settings (especially FPS options) to ensure metadata is available.
-- OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python` (not `opencv-python-headless`) is installed.
+- OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python-headless` is installed.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
 
