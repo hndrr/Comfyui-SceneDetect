@@ -112,7 +112,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 ComfyUI's built-in `Save Video` is the only core node that shows a video preview, and it writes files to the output directory. Use this node when you only want to watch the unsaved clips.
 
 - Required input: `video` (`VIDEO`). `INPUT_IS_LIST` is enabled, so connect either a single `VIDEO` or the `scene_videos` list from `PySceneDetect: Video → Scenes`.
-- No graph outputs. After execution, one clip plays at a time. Use previous/next or the scene number to inspect the rest; only the visible clip is decoded, so a large scene count stays light.
+- No graph outputs. After execution, one clip plays at a time. Use previous/next or the scene number to inspect the rest; only the visible clip is decoded, so a large scene count stays light. The player keeps the current frame on screen until the next clip's first frame is decoded, so switching does not flash the previous picture.
 - Files already in temp are referenced in place. Other files are copied into `temp/scenedetect_preview/` for the `/view` endpoint. Nothing is written to the output directory.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
@@ -208,6 +208,7 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 - Latent batches in legacy workflows: If a VAE is connected to the VHS `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
 - OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python-headless` is installed.
 - Clip splitting fails: Confirm `ffmpeg` is on `PATH`. The default is stream copy (`-c copy`), which can miss keyframes or fail when the audio codec cannot be muxed into MP4; the node then retries with libx264. Enable `split_reencode` for frame-accurate cuts from the start.
+- Preview Videos flashes the previous scene: The player waits for the next clip's first decoded frame before swapping. If the *start* of a clip still contains the previous shot, that is `-c copy` cutting on the prior keyframe — turn on `split_reencode`.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
 - Changing `method` does not swap detector fields: The node is still the old V1 combo from a previous version. Delete it, add `PySceneDetect: Video → Scenes` again, and restart ComfyUI. Widget visibility is handled by core DynamicCombo, not by this package's JavaScript.

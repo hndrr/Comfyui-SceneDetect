@@ -14,6 +14,9 @@ function previewEntries(message) {
   if (!message) {
     return [];
   }
+  if (Array.isArray(message.scene_previews) && message.scene_previews.length) {
+    return message.scene_previews;
+  }
   if (Array.isArray(message.videos) && message.videos.length) {
     return message.videos;
   }
@@ -73,22 +76,93 @@ function clampSceneIndex(index, count) {
   return ((index % count) + count) % count;
 }
 
+function stylePreviewVideo(video) {
+  video.controls = true;
+  video.loop = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.style.width = "100%";
+  video.style.height = "100%";
+  video.style.objectFit = "contain";
+  video.style.background = "#111";
+  video.style.display = "block";
+}
+
+function discardPendingVideos(stage, keep) {
+  for (const child of [...stage.children]) {
+    if (child === keep) {
+      continue;
+    }
+    unloadVideo(child);
+    child.remove();
+  }
+}
+
 function showPreviewScene(node, index) {
   const entries = node._psdPreviewEntries || [];
-  if (!entries.length || !node._psdPreviewVideo) {
+  const stage = node._psdPreviewStage;
+  if (!entries.length || !stage) {
     return;
   }
 
   const next = clampSceneIndex(index, entries.length);
   node._psdPreviewIndex = next;
-  unloadVideo(node._psdPreviewVideo);
-  node._psdPreviewVideo.src = viewUrl(entries[next]);
   if (node._psdPreviewIndexInput) {
     node._psdPreviewIndexInput.value = String(next + 1);
   }
   if (node._psdPreviewTotalLabel) {
     node._psdPreviewTotalLabel.textContent = `/ ${entries.length}`;
   }
+
+  const current = node._psdPreviewVideo;
+  const currentUrl = current?.getAttribute("src");
+  const nextUrl = viewUrl(entries[next]);
+  if (current && currentUrl === nextUrl) {
+    return;
+  }
+
+  const token = (node._psdPreviewLoadToken = (node._psdPreviewLoadToken || 0) + 1);
+  discardPendingVideos(stage, current);
+
+  const incoming = document.createElement("video");
+  stylePreviewVideo(incoming);
+  incoming.style.position = "absolute";
+  incoming.style.inset = "0";
+  incoming.style.visibility = "hidden";
+  incoming.style.zIndex = "1";
+
+  const reveal = () => {
+    if (token !== node._psdPreviewLoadToken) {
+      unloadVideo(incoming);
+      incoming.remove();
+      return;
+    }
+    incoming.style.visibility = "visible";
+    const outgoing = node._psdPreviewVideo;
+    node._psdPreviewVideo = incoming;
+    if (outgoing && outgoing !== incoming) {
+      unloadVideo(outgoing);
+      outgoing.remove();
+    }
+    incoming.play().catch(() => {});
+  };
+
+  incoming.addEventListener("loadeddata", reveal, { once: true });
+  incoming.addEventListener(
+    "error",
+    () => {
+      if (token !== node._psdPreviewLoadToken) {
+        incoming.remove();
+        return;
+      }
+      incoming.style.visibility = "visible";
+    },
+    { once: true }
+  );
+
+  stage.appendChild(incoming);
+  incoming.src = nextUrl;
 }
 
 function stopWidgetEvent(event) {
@@ -102,8 +176,10 @@ function renderVideoPreviews(node, entries) {
   node._psdPreviewEntries = entries;
   node._psdPreviewIndex = 0;
   node._psdPreviewVideo = null;
+  node._psdPreviewStage = null;
   node._psdPreviewIndexInput = null;
   node._psdPreviewTotalLabel = null;
+  node._psdPreviewLoadToken = 0;
   hideNativeFirstClipPreview(node);
 
   if (!entries.length) {
@@ -148,17 +224,14 @@ function renderVideoPreviews(node, entries) {
     total.textContent = `/ ${entries.length}`;
     total.style.opacity = "0.8";
 
-    const video = document.createElement("video");
-    video.controls = true;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "metadata";
-    video.style.width = "100%";
-    video.style.maxHeight = "220px";
-    video.style.background = "#111";
+    const stage = document.createElement("div");
+    stage.style.position = "relative";
+    stage.style.width = "100%";
+    stage.style.height = "220px";
+    stage.style.background = "#111";
+    stage.style.overflow = "hidden";
 
-    node._psdPreviewVideo = video;
+    node._psdPreviewStage = stage;
     node._psdPreviewIndexInput = input;
     node._psdPreviewTotalLabel = total;
 
@@ -179,7 +252,7 @@ function renderVideoPreviews(node, entries) {
     });
 
     toolbar.append(prev, input, total, next);
-    container.append(toolbar, video);
+    container.append(toolbar, stage);
     showPreviewScene(node, 0);
   }
 
@@ -197,9 +270,17 @@ app.registerExtension({
       return;
     }
 
+    const onNodeCreated = nodeType.prototype.onNodeCreated;
+    nodeType.prototype.onNodeCreated = function () {
+      const result = onNodeCreated?.apply(this, arguments);
+      hideNativeFirstClipPreview(this);
+      return result;
+    };
+
     const onExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (message) {
       const result = onExecuted?.apply(this, arguments);
+      hideNativeFirstClipPreview(this);
       renderVideoPreviews(this, previewEntries(message));
       return result;
     };

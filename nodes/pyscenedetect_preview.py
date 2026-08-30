@@ -101,10 +101,9 @@ class PySceneDetectPreviewVideos:
             for item in _as_video_list(video)
             if item is not None
         ]
-        # Do not send `images`/`animated`: ComfyUI's native video preview
-        # preloads every URL, which is too heavy for large scene counts.
-        # The frontend loads a single <video> and switches by scene number.
-        return {"ui": {"videos": results}}
+        # Use `scene_previews`, not `videos`/`images`: core VideoPreview would
+        # otherwise mount a second player that flashes the previous clip.
+        return {"ui": {"scene_previews": results}}
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectPreviewVideos": PySceneDetectPreviewVideos}
