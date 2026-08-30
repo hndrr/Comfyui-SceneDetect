@@ -2,20 +2,23 @@
 
 ![workflow](assets/2025-10-25-235141.png)
 
-Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate scene boundaries in a video and emit one representative frame per scene as an `IMAGE` batch. It also returns per-scene metadata as JSON (`STRING`) and the total number of detected scenes (`INT`).
+Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, and the detected scene count.
 
 ## Features
 
-- Automatic scene segmentation from video files (powered by PySceneDetect)
+- Direct support for ComfyUI's built-in `Load Video` and `VIDEO` type
+- Low-memory processing in the recommended node without materializing the complete video as a float32 `IMAGE` batch
+- Backward-compatible Legacy VHS node for existing workflows
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
 
 ## Requirements
 
-- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite): Provides the `Load Video` node that supplies `IMAGE` batches and `VHS_VIDEOINFO` metadata consumed by this node.
+- ComfyUI with built-in `VIDEO` support for the recommended node
 - Python 3.10 or newer
-- [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect): Core scene detection engine leveraged by this custom node.
+- [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect) and OpenCV (installed through this package's dependency list)
+- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only when using the Legacy VHS node
 
 ## Installation
 
@@ -42,20 +45,32 @@ Installing from ComfyUI Manager also installs the Python dependencies listed bel
 
 ## Node Name and Category
 
-- Node: `PySceneDetect: Scenes → Images`
+- Node: `PySceneDetect: Video → Scenes` (recommended, built-in `VIDEO` input)
+- Legacy node: `PySceneDetect: Scenes → Images (Legacy VHS)`
 - Category: `Video/PySceneDetect`
 
 Once installed, the node can be searched and placed directly inside ComfyUI.
 
+### Which node should I use?
+
+| | Recommended | Legacy |
+|---|---|---|
+| SceneDetect node | `PySceneDetect: Video → Scenes` | `PySceneDetect: Scenes → Images (Legacy VHS)` |
+| Loader | ComfyUI built-in `Load Video` | VHS `Load Video (Upload)` |
+| Input | Lazy `VIDEO` | Full `IMAGE` batch + `VHS_VIDEOINFO` |
+| Memory use | Only compressed video decoding and representative frames | VHS must keep the full float32 frame batch in memory |
+| Use case | New workflows and long/high-resolution videos | Existing VHS workflows |
+
 ## Inputs and Outputs
 
+### `PySceneDetect: Video → Scenes`
+
 - Required inputs
-  - `image` (`IMAGE`): Connect output 1 from the comfyui-videohelpersuite (VHS) `Load Video` node. This must be an RGB frame batch (`(B,H,W,C)` or `(B,C,H,W)`). Latent batches from VAE outputs are not supported.
-  - `video_info` (`VHS_VIDEOINFO`): Connect output 4 from the same node (metadata such as playback FPS). When `loaded_fps` is 0, the node falls back to `source_fps`.
+  - `video` (`VIDEO`): Connect the output from ComfyUI's built-in `Load Video` node. The video is streamed from the compressed source instead of being expanded into a full frame batch.
   - `method` (`content|adaptive|threshold`): Scene detection method.
   - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
-  - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Preferred when FPS information is available.
-  - `min_scene_len_frames` (`INT`): Minimum scene length in frames (fallback when FPS is unknown).
+  - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Values greater than zero override `min_scene_len_frames`.
+  - `min_scene_len_frames` (`INT`): Minimum scene length in frames, used when `min_scene_len_sec` is `0`.
   - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold uses color in PySceneDetect 0.7).
 
 - Optional inputs
@@ -64,12 +79,21 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `max_height` (`INT`): Maximum height of the representative frame (0 disables resizing).
   - `limit_scenes` (`INT`): Limit the number of scenes processed from the start (0 disables the limit).
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
-  - `thumbs_dir` (`STRING`): Directory for thumbnails. When empty, `scene_thumbs` is created in the working directory.
+  - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
 
 - Outputs
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
+
+### `PySceneDetect: Scenes → Images (Legacy VHS)`
+
+The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
+
+- Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
+- Connect `VHS_VIDEOINFO` output 4 to `video_info`.
+- Do not connect a VAE; latent batches are unsupported.
+- The node processes the supplied tensor one frame at a time, but the full VHS `IMAGE` batch still remains resident in memory.
 
 ## JSON Output Example (`scenes_json`)
 
@@ -105,21 +129,34 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 
 ## Usage in ComfyUI
 
-1. Load a video with the VHS `Load Video` node while outputting RGB frames (do not connect a VAE).
-2. Add the `PySceneDetect: Scenes → Images` node, connect `image` to output 1 and `video_info` to output 4 of `Load Video`.
+1. Load a video with ComfyUI's built-in `Load Video` node.
+2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
 3. Adjust `method`, `threshold`, and `min_scene_len_*` to match the video source.
 4. Configure the representative frame position, optional resizing, and thumbnail export settings.
 5. Execute the graph to receive representative frames on `images` and scene metadata on `scenes_json`.
 
+Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
+
+- Recommended: `workflow/pyscene_workflow.json`
+- Legacy VHS: `workflow/pyscene_workflow_legacy_vhs.json`
+
+Existing workflows containing `PySceneDetectToImages` continue to load as the Legacy VHS node.
+
+## Memory Behavior
+
+The recommended node receives a lazy `VIDEO` object from ComfyUI's built-in loader. PySceneDetect reads the original compressed file directly, and only the selected representative frames are returned as an `IMAGE` batch. It does not create a full float32 frame batch.
+
+The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDetect processes that batch one frame at a time without creating full RGB/BGR copies. For new workflows, use the built-in `Load Video` path to avoid the VHS batch allocation entirely.
+
 ## Project Layout
 
 - The root `__init__.py` follows the standard ComfyUI structure and registers `nodes`.
-- The node implementation lives in `nodes/pyscenedetect_to_images.py` and shared helpers reside in `utils/video_ops.py`.
+- The built-in `VIDEO` implementation lives in `nodes/pyscenedetect_video.py`, the VHS-compatible implementation lives in `nodes/pyscenedetect_to_images.py`, and shared helpers reside in `utils/video_ops.py`.
 
 ## Troubleshooting
 
-- Latent batches: If a VAE is connected to `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
-- Missing FPS in `video_info`: Review the `Load Video` settings (especially FPS options) to ensure metadata is available.
+- High memory use with VHS: Prefer the built-in `Load Video` and `PySceneDetect: Video → Scenes`. The legacy VHS path must keep its full `IMAGE` batch in memory.
+- Latent batches in legacy workflows: If a VAE is connected to the VHS `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
 - OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python-headless` is installed.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
