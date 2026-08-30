@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 const NODE_CLASSES = new Set(["PySceneDetectVideo", "PySceneDetectToImages"]);
 
@@ -69,6 +70,9 @@ function setWidgetHidden(widget, hidden) {
   widget.computeSize = hidden
     ? () => [0, -4]
     : widget._psdOrigComputeSize;
+  if (widget.element) {
+    widget.element.style.display = hidden ? "none" : "";
+  }
 }
 
 function refreshVisibility(node) {
@@ -102,6 +106,25 @@ function refreshVisibility(node) {
   app.graph?.setDirtyCanvas?.(true, true);
 }
 
+function visibilityKey(node) {
+  return [
+    node.widgets?.length || 0,
+    widgetValue(node, "method") || "content",
+    isTruthy(widgetValue(node, "show_all_settings")) ? "1" : "0",
+    isTruthy(widgetValue(node, "write_thumbs")) ? "1" : "0",
+    isTruthy(widgetValue(node, "split_clips")) ? "1" : "0",
+  ].join("|");
+}
+
+function syncVisibility(node) {
+  const key = visibilityKey(node);
+  if (node._psdVisibilityKey === key) {
+    return;
+  }
+  node._psdVisibilityKey = key;
+  refreshVisibility(node);
+}
+
 function hookWidget(node, name) {
   const widget = widgetByName(node, name);
   if (!widget || widget._psdVisibilityHooked) {
@@ -111,9 +134,21 @@ function hookWidget(node, name) {
   const original = widget.callback;
   widget.callback = function () {
     const result = original?.apply(this, arguments);
-    refreshVisibility(node);
+    node._psdVisibilityKey = undefined;
+    syncVisibility(node);
     return result;
   };
+}
+
+function hookVisibilityWidgets(node) {
+  for (const name of [
+    "method",
+    "write_thumbs",
+    "split_clips",
+    "show_all_settings",
+  ]) {
+    hookWidget(node, name);
+  }
 }
 
 app.registerExtension({
@@ -126,22 +161,239 @@ app.registerExtension({
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const result = onNodeCreated?.apply(this, arguments);
-      for (const name of [
-        "method",
-        "write_thumbs",
-        "split_clips",
-        "show_all_settings",
-      ]) {
-        hookWidget(this, name);
-      }
-      refreshVisibility(this);
+      hookVisibilityWidgets(this);
+      this._psdVisibilityKey = undefined;
+      syncVisibility(this);
       return result;
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = onConfigure?.apply(this, arguments);
-      refreshVisibility(this);
+      hookVisibilityWidgets(this);
+      this._psdVisibilityKey = undefined;
+      syncVisibility(this);
+      return result;
+    };
+
+    const onWidgetChanged = nodeType.prototype.onWidgetChanged;
+    nodeType.prototype.onWidgetChanged = function () {
+      const result = onWidgetChanged?.apply(this, arguments);
+      this._psdVisibilityKey = undefined;
+      syncVisibility(this);
+      return result;
+    };
+
+    const onDrawForeground = nodeType.prototype.onDrawForeground;
+    nodeType.prototype.onDrawForeground = function () {
+      const result = onDrawForeground?.apply(this, arguments);
+      hookVisibilityWidgets(this);
+      syncVisibility(this);
+      return result;
+    };
+  },
+});
+
+function viewUrl(entry) {
+  const params = new URLSearchParams({
+    filename: entry.filename,
+    type: entry.type || "temp",
+    subfolder: entry.subfolder || "",
+  });
+  return api.apiURL(`/view?${params.toString()}`);
+}
+
+function previewEntries(message) {
+  if (!message) {
+    return [];
+  }
+  if (Array.isArray(message.videos) && message.videos.length) {
+    return message.videos;
+  }
+  if (Array.isArray(message.images)) {
+    return message.images;
+  }
+  return [];
+}
+
+function ensureVideoPreviewWidget(node) {
+  if (node._psdVideoPreviewContainer) {
+    return node._psdVideoPreviewContainer;
+  }
+
+  const container = document.createElement("div");
+  container.className = "psd-video-preview";
+  container.style.display = "flex";
+  container.style.flexDirection = "column";
+  container.style.gap = "8px";
+  container.style.width = "100%";
+
+  const widget = node.addDOMWidget("psd-video-preview", "div", container, {
+    serialize: false,
+    hideOnZoom: false,
+  });
+  widget.computeSize = function (width) {
+    return [width, node._psdVideoPreviewHeight || 28];
+  };
+
+  node._psdVideoPreviewContainer = container;
+  node._psdVideoPreviewWidget = widget;
+  return container;
+}
+
+function hideNativeFirstClipPreview(node) {
+  for (const widget of node.widgets || []) {
+    if (widget.name === "video-preview") {
+      widget.hidden = true;
+      widget.computeSize = () => [0, -4];
+    }
+  }
+}
+
+function unloadVideo(video) {
+  if (!video) {
+    return;
+  }
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+}
+
+function clampSceneIndex(index, count) {
+  if (count <= 0) {
+    return 0;
+  }
+  return ((index % count) + count) % count;
+}
+
+function showPreviewScene(node, index) {
+  const entries = node._psdPreviewEntries || [];
+  if (!entries.length || !node._psdPreviewVideo) {
+    return;
+  }
+
+  const next = clampSceneIndex(index, entries.length);
+  node._psdPreviewIndex = next;
+  unloadVideo(node._psdPreviewVideo);
+  node._psdPreviewVideo.src = viewUrl(entries[next]);
+  if (node._psdPreviewIndexInput) {
+    node._psdPreviewIndexInput.value = String(next + 1);
+  }
+  if (node._psdPreviewTotalLabel) {
+    node._psdPreviewTotalLabel.textContent = `/ ${entries.length}`;
+  }
+}
+
+function stopWidgetEvent(event) {
+  event.stopPropagation();
+}
+
+function renderVideoPreviews(node, entries) {
+  const container = ensureVideoPreviewWidget(node);
+  unloadVideo(node._psdPreviewVideo);
+  container.replaceChildren();
+  node._psdPreviewEntries = entries;
+  node._psdPreviewIndex = 0;
+  node._psdPreviewVideo = null;
+  node._psdPreviewIndexInput = null;
+  node._psdPreviewTotalLabel = null;
+  hideNativeFirstClipPreview(node);
+
+  if (!entries.length) {
+    node._psdVideoPreviewHeight = 28;
+    const empty = document.createElement("div");
+    empty.textContent =
+      "No videos to preview. Enable split_clips and connect videos.";
+    empty.style.opacity = "0.65";
+    empty.style.padding = "6px 4px";
+    empty.style.fontSize = "12px";
+    container.appendChild(empty);
+  } else {
+    node._psdVideoPreviewHeight = 280;
+
+    const toolbar = document.createElement("div");
+    toolbar.style.display = "flex";
+    toolbar.style.alignItems = "center";
+    toolbar.style.gap = "6px";
+    toolbar.style.fontSize = "12px";
+    toolbar.addEventListener("pointerdown", stopWidgetEvent);
+
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "◀";
+    prev.title = "Previous scene";
+
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = "▶";
+    next.title = "Next scene";
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.max = String(entries.length);
+    input.step = "1";
+    input.value = "1";
+    input.style.width = "4.5em";
+    input.title = "Scene number";
+
+    const total = document.createElement("span");
+    total.textContent = `/ ${entries.length}`;
+    total.style.opacity = "0.8";
+
+    const video = document.createElement("video");
+    video.controls = true;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.style.width = "100%";
+    video.style.maxHeight = "220px";
+    video.style.background = "#111";
+
+    node._psdPreviewVideo = video;
+    node._psdPreviewIndexInput = input;
+    node._psdPreviewTotalLabel = total;
+
+    prev.addEventListener("click", (event) => {
+      stopWidgetEvent(event);
+      showPreviewScene(node, (node._psdPreviewIndex || 0) - 1);
+    });
+    next.addEventListener("click", (event) => {
+      stopWidgetEvent(event);
+      showPreviewScene(node, (node._psdPreviewIndex || 0) + 1);
+    });
+    input.addEventListener("change", (event) => {
+      stopWidgetEvent(event);
+      const value = Number(input.value);
+      if (Number.isFinite(value)) {
+        showPreviewScene(node, Math.round(value) - 1);
+      }
+    });
+
+    toolbar.append(prev, input, total, next);
+    container.append(toolbar, video);
+    showPreviewScene(node, 0);
+  }
+
+  const size = node.computeSize?.() || node.size;
+  if (size) {
+    node.setSize([node.size[0], Math.max(node.size[1], size[1])]);
+  }
+  app.graph?.setDirtyCanvas?.(true, true);
+}
+
+app.registerExtension({
+  name: "Comfyui-SceneDetect.PreviewVideos",
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData.name !== "PySceneDetectPreviewVideos") {
+      return;
+    }
+
+    const onExecuted = nodeType.prototype.onExecuted;
+    nodeType.prototype.onExecuted = function (message) {
+      const result = onExecuted?.apply(this, arguments);
+      renderVideoPreviews(this, previewEntries(message));
       return result;
     };
   },
