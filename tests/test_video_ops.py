@@ -29,6 +29,7 @@ from utils.video_ops import (
     split_scene_clips,
     timecodes_to_dict,
     unpack_method_input,
+    unpack_toggle_combo,
 )
 
 
@@ -363,51 +364,42 @@ class VideoOpsTests(unittest.TestCase):
         self.assertEqual(method, "hash")
         self.assertEqual(threshold, 27.0)
         self.assertTrue(luma_only)
-        self.assertEqual(
-            extra,
+        self.assertEqual(extra, {"hash_threshold": 0.4, "hash_size": 8, "hash_lowpass": 2})
+
+    def test_unpack_toggle_combo_expands_nested_node_settings(self):
+        enabled, extras = unpack_toggle_combo(
             {
-                "hash_threshold": 0.4,
-                "hash_size": 8,
-                "hash_lowpass": 2,
+                "show_all_settings": "true",
+                "max_width": 640,
+                "limit_scenes": 4,
+                "write_thumbs": True,
+                "thumbs_dir": "scene_thumbs",
+                "prompt_template": "Scene {index}",
+                "start_in_scene": True,
+                "downscale": 2,
+            },
+            "show_all_settings",
+        )
+
+        self.assertTrue(enabled)
+        self.assertEqual(
+            extras,
+            {
+                "max_width": 640,
+                "limit_scenes": 4,
+                "write_thumbs": True,
+                "thumbs_dir": "scene_thumbs",
+                "prompt_template": "Scene {index}",
+                "start_in_scene": True,
+                "downscale": 2,
             },
         )
 
-    def test_unpack_method_input_unwraps_show_all_settings_false(self):
-        method, threshold, luma_only, extra = unpack_method_input(
-            {
-                "method": "hash",
-                "show_all_settings": {
-                    "show_all_settings": "false",
-                    "hash_threshold": 0.3,
-                },
-            }
-        )
+    def test_unpack_toggle_combo_false_has_no_nested_fields(self):
+        enabled, extras = unpack_toggle_combo("false", "show_all_settings")
 
-        self.assertEqual(method, "hash")
-        self.assertEqual(threshold, 27.0)
-        self.assertTrue(luma_only)
-        self.assertEqual(extra, {"hash_threshold": 0.3})
-
-    def test_unpack_method_input_unwraps_show_all_settings_true_for_same_method(self):
-        method, threshold, luma_only, extra = unpack_method_input(
-            {
-                "method": "content",
-                "show_all_settings": {
-                    "show_all_settings": "true",
-                    "threshold": 12.5,
-                    "luma_only": False,
-                    "delta_hue": 2.0,
-                    "kernel_size": 5,
-                },
-            }
-        )
-
-        self.assertEqual(method, "content")
-        self.assertEqual(threshold, 12.5)
-        self.assertFalse(luma_only)
-        self.assertEqual(extra, {"delta_hue": 2.0, "kernel_size": 5})
-        self.assertNotIn("hash_threshold", extra)
-        self.assertNotIn("hist_threshold", extra)
+        self.assertFalse(enabled)
+        self.assertEqual(extras, {})
 
     def test_unpack_method_input_drops_v1_show_all_settings_flag(self):
         method, threshold, luma_only, extra = unpack_method_input(
