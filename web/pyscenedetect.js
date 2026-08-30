@@ -43,7 +43,13 @@ function ensureVideoPreviewWidget(node) {
     hideOnZoom: false,
   });
   widget.computeSize = function (width) {
-    return [width, node._psdVideoPreviewHeight || 28];
+    if (!node._psdPreviewAspect) {
+      return [width, node._psdVideoPreviewHeight || 28];
+    }
+    const { height } = stageSizeForAspect(width, node._psdPreviewAspect);
+    const total = height + PREVIEW_TOOLBAR_H;
+    node._psdVideoPreviewHeight = total;
+    return [width, total];
   };
 
   node._psdVideoPreviewContainer = container;
@@ -76,6 +82,47 @@ function clampSceneIndex(index, count) {
   return ((index % count) + count) % count;
 }
 
+const PREVIEW_TOOLBAR_H = 40;
+const PREVIEW_MIN_STAGE_H = 140;
+const PREVIEW_MAX_STAGE_H = 560;
+
+function stageSizeForAspect(nodeWidth, aspect) {
+  const inner = Math.max(120, (nodeWidth || 320) - 20);
+  let width = inner;
+  let height = width / aspect;
+  if (height > PREVIEW_MAX_STAGE_H) {
+    height = PREVIEW_MAX_STAGE_H;
+    width = height * aspect;
+  }
+  if (height < PREVIEW_MIN_STAGE_H && aspect >= 1) {
+    height = PREVIEW_MIN_STAGE_H;
+    width = Math.min(inner, height * aspect);
+  }
+  return { width: Math.round(width), height: Math.round(height) };
+}
+
+function applyStageSize(node, video) {
+  const stage = node._psdPreviewStage;
+  if (!stage || !video?.videoWidth || !video.videoHeight) {
+    return;
+  }
+  const aspect = video.videoWidth / video.videoHeight;
+  if (!Number.isFinite(aspect) || aspect <= 0) {
+    return;
+  }
+  node._psdPreviewAspect = aspect;
+  const { width, height } = stageSizeForAspect(node.size?.[0], aspect);
+  stage.style.width = `${width}px`;
+  stage.style.height = `${height}px`;
+  stage.style.marginInline = "auto";
+  node._psdVideoPreviewHeight = height + PREVIEW_TOOLBAR_H;
+  const size = node.computeSize?.() || node.size;
+  if (size) {
+    node.setSize([node.size[0], Math.max(node.size[1], size[1])]);
+  }
+  app.graph?.setDirtyCanvas?.(true, true);
+}
+
 function stylePreviewVideo(video) {
   video.controls = true;
   video.loop = false;
@@ -87,7 +134,7 @@ function stylePreviewVideo(video) {
     "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
   video.style.width = "100%";
   video.style.height = "100%";
-  video.style.objectFit = "contain";
+  video.style.objectFit = "fill";
   video.style.background = "#111";
   video.style.display = "block";
 }
@@ -289,12 +336,13 @@ function showPreviewScene(node, index) {
       incoming.remove();
       return;
     }
+    incoming.style.zIndex = "2";
+    incoming.style.pointerEvents = "";
+    applyStageSize(node, incoming);
     incoming.style.left = "0";
     incoming.style.right = "0";
     incoming.style.bottom = "0";
     incoming.style.opacity = "1";
-    incoming.style.zIndex = "2";
-    incoming.style.pointerEvents = "";
     const outgoing = node._psdPreviewVideo;
     node._psdPreviewVideo = incoming;
     await incoming.play().catch(() => {});
@@ -343,6 +391,7 @@ function renderVideoPreviews(node, entries) {
   node._psdPreviewIndex = 0;
   node._psdPreviewVideo = null;
   node._psdPreviewStage = null;
+  node._psdPreviewAspect = null;
   node._psdPreviewIndexInput = null;
   node._psdPreviewTotalLabel = null;
   node._psdPreviewLoadToken = 0;
@@ -396,6 +445,7 @@ function renderVideoPreviews(node, entries) {
     stage.style.height = "220px";
     stage.style.background = "#111";
     stage.style.overflow = "hidden";
+    stage.style.marginInline = "auto";
 
     node._psdPreviewStage = stage;
     node._psdPreviewIndexInput = input;
@@ -448,6 +498,21 @@ app.registerExtension({
       const result = onExecuted?.apply(this, arguments);
       hideNativeFirstClipPreview(this);
       renderVideoPreviews(this, previewEntries(message));
+      return result;
+    };
+
+    const onResize = nodeType.prototype.onResize;
+    nodeType.prototype.onResize = function (size) {
+      const result = onResize?.apply(this, arguments);
+      if (this._psdPreviewStage && this._psdPreviewAspect) {
+        const { width, height } = stageSizeForAspect(
+          size?.[0] ?? this.size?.[0],
+          this._psdPreviewAspect
+        );
+        this._psdPreviewStage.style.width = `${width}px`;
+        this._psdPreviewStage.style.height = `${height}px`;
+        this._psdVideoPreviewHeight = height + PREVIEW_TOOLBAR_H;
+      }
       return result;
     };
   },
