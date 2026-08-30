@@ -13,6 +13,7 @@ from utils.video_ops import (
     TensorVideoStream,
     detect_scenes,
     detect_scenes_from_video,
+    read_video_frames,
     timecodes_to_dict,
 )
 
@@ -105,12 +106,15 @@ class VideoOpsTests(unittest.TestCase):
                 min_scene_len_frames=1,
                 luma_only=False,
             )
+            selected_frames = read_video_frames(str(video_path), [0, 20])
 
         self.assertAlmostEqual(fps, 10.0)
         self.assertEqual(
             [(start.frame_num, end.frame_num) for start, end in scenes],
             [(0, 20), (20, 40)],
         )
+        np.testing.assert_array_equal(selected_frames[0][0, 0], [0, 0, 0])
+        np.testing.assert_array_equal(selected_frames[20][0, 0], [255, 255, 255])
 
     def test_detect_scenes_finds_hard_cut_in_tensor_stream(self):
         frames = torch.cat(

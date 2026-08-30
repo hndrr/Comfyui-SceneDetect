@@ -1,5 +1,8 @@
 from __future__ import annotations
+from contextlib import contextmanager
 from fractions import Fraction
+import os
+import tempfile
 from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
@@ -179,8 +182,12 @@ def detect_scenes(
     min_scene_len_sec: float,
     min_scene_len_frames: int,
     luma_only: bool,
+    start_time: float = 0.0,
+    duration: float = 0.0,
 ):
     video = open_video(video_path)
+    if start_time > 0:
+        video.seek(start_time)
     return detect_scenes_from_video(
         video,
         method,
@@ -188,6 +195,7 @@ def detect_scenes(
         min_scene_len_sec,
         min_scene_len_frames,
         luma_only,
+        duration,
     )
 
 
@@ -198,6 +206,7 @@ def detect_scenes_from_video(
     min_scene_len_sec: float,
     min_scene_len_frames: int,
     luma_only: bool,
+    duration: float = 0.0,
 ):
     fps = float(getattr(video, "frame_rate", 0.0))
     min_scene_len = (
@@ -210,7 +219,11 @@ def detect_scenes_from_video(
     try:
         detector = choose_detector(method, threshold, min_scene_len, luma_only)
         manager.add_detector(detector)
-        manager.detect_scenes(video=video, show_progress=False)
+        manager.detect_scenes(
+            video=video,
+            duration=duration if duration > 0 else None,
+            show_progress=False,
+        )
         scene_list = manager.get_scene_list()
     finally:
         # Ensure file-backed streams are released even if detection raises.
@@ -219,3 +232,36 @@ def detect_scenes_from_video(
             release()
 
     return scene_list, fps
+
+
+@contextmanager
+def video_source_path(source: Any):
+    if isinstance(source, (str, os.PathLike)):
+        yield os.fspath(source)
+        return
+
+    with tempfile.TemporaryDirectory(prefix="scenedetect_source_") as tmpdir:
+        path = os.path.join(tmpdir, "input.video")
+        source.seek(0)
+        with open(path, "wb") as output:
+            while chunk := source.read(1024 * 1024):
+                output.write(chunk)
+        source.seek(0)
+        yield path
+
+
+def read_video_frames(video_path: str, frame_indices: List[int]) -> Dict[int, np.ndarray]:
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise RuntimeError(f"Failed to open video: {video_path}")
+
+    frames: Dict[int, np.ndarray] = {}
+    try:
+        for index in sorted(set(frame_indices)):
+            capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+            ok, frame = capture.read()
+            if ok:
+                frames[index] = frame
+    finally:
+        capture.release()
+    return frames
