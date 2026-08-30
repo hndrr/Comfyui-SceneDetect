@@ -168,6 +168,12 @@ def unpack_method_input(
 ) -> Tuple[str, float, bool, Dict[str, Any]]:
     """Flatten a V3 DynamicCombo `method` dict, or pass through a plain method name."""
     extras = dict(extra or {})
+    if isinstance(method, dict) and "show_all_settings" in method:
+        extras.update(
+            {key: value for key, value in method.items() if key != "show_all_settings"}
+        )
+        method = extras.pop("method", "content")
+    extras.pop("show_all_settings", None)
     if isinstance(method, dict):
         selected = method.get("method", "content")
         extras.update({key: value for key, value in method.items() if key != "method"})
