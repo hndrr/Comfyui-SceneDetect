@@ -17,13 +17,13 @@ from scenedetect.detectors import (
 )
 
 from utils.video_ops import (
-    DEFAULT_SCENE_PROMPT,
     DetectorSettings,
     TensorVideoStream,
     choose_detector,
     detect_scenes,
     detect_scenes_from_video,
     format_scenes_for_llm,
+    normalized_kernel_size,
     read_video_frames,
     sanitize_clip_name,
     split_scene_clips,
@@ -172,6 +172,12 @@ class VideoOpsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             choose_detector("unknown", 27.0, 15, False)
 
+    def test_normalized_kernel_size_uses_odd_values(self):
+        self.assertIsNone(normalized_kernel_size(0))
+        self.assertIsNone(normalized_kernel_size(2))
+        self.assertEqual(normalized_kernel_size(3), 3)
+        self.assertEqual(normalized_kernel_size(4), 5)
+
     def test_detect_scenes_finds_hard_cut(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
@@ -277,7 +283,7 @@ class VideoOpsTests(unittest.TestCase):
         self.assertIn("frames 0-20", text)
         self.assertEqual(len(prompts), 1)
         self.assertIn("Scene 1/1:", prompts[0])
-        self.assertIn(DEFAULT_SCENE_PROMPT[:12], DEFAULT_SCENE_PROMPT)
+        self.assertIn("Describe this shot.", prompts[0])
         self.assertEqual(custom_prompts[0], "Shot 1/1 /tmp/clip.mp4 {unknown}")
         self.assertIn("# Scenes (1)", custom)
 

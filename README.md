@@ -100,7 +100,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
-The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list`. It does not split `VIDEO` clips.
+The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list`. Clip splitting (`split_clips` / `videos`) exists only on the recommended `VIDEO` node, because the Legacy VHS path has no file-backed source for ffmpeg.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -186,7 +186,7 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 - High memory use with VHS: Prefer the built-in `Load Video` and `PySceneDetect: Video → Scenes`. The legacy VHS path must keep its full `IMAGE` batch in memory.
 - Latent batches in legacy workflows: If a VAE is connected to the VHS `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
 - OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python-headless` is installed.
-- Clip splitting fails: Confirm `ffmpeg` is on `PATH`. Stream copy (`split_reencode` off) can miss keyframes; enable re-encode for frame-accurate cuts.
+- Clip splitting fails: Confirm `ffmpeg` is on `PATH`. The default is stream copy (`-c copy`), which can miss keyframes or fail when the audio codec cannot be muxed into MP4; the node then retries with libx264. Enable `split_reencode` for frame-accurate cuts from the start.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
 
