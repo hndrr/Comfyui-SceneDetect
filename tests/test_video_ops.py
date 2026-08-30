@@ -27,6 +27,7 @@ from utils.video_ops import (
     read_video_frames,
     sanitize_clip_name,
     split_scene_clips,
+    stamp_scene_duration,
     timecodes_to_dict,
     unpack_method_input,
     unpack_toggle_combo,
@@ -411,6 +412,13 @@ class VideoOpsTests(unittest.TestCase):
         self.assertEqual(threshold, 27.0)
         self.assertTrue(luma_only)
         self.assertEqual(extra, {"delta_hue": 2.0})
+
+    def test_stamp_scene_duration_sets_attribute(self):
+        clip = type("Clip", (), {})()
+        stamped = stamp_scene_duration(clip, 1.5)
+        self.assertIs(stamped, clip)
+        self.assertEqual(clip.scene_duration_sec, 1.5)
+        self.assertIs(stamp_scene_duration("path", 1.0), "path")
 
 
 if __name__ == "__main__":

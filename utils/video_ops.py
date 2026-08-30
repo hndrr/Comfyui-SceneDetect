@@ -540,6 +540,15 @@ def load_video_from_file(path: str):
     return InputImpl.VideoFromFile(path)
 
 
+def stamp_scene_duration(clip: Any, duration_sec: float) -> Any:
+    """Attach detected scene length so preview can hide the copy-split tail."""
+    try:
+        setattr(clip, "scene_duration_sec", float(duration_sec))
+    except (AttributeError, TypeError):
+        pass
+    return clip
+
+
 class _TemplateMap(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"

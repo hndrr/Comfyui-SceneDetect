@@ -50,9 +50,11 @@ def _write_dummy_video(path: Path) -> None:
 
 
 class FakeVideo:
-    def __init__(self, path: Path | None, save_to_impl=None):
+    def __init__(self, path: Path | None, save_to_impl=None, duration_sec=None):
         self._path = str(path) if path is not None else None
         self._save_to_impl = save_to_impl
+        if duration_sec is not None:
+            self.scene_duration_sec = duration_sec
 
     def get_stream_source(self):
         return self._path
@@ -131,6 +133,23 @@ class PreviewNodeTests(unittest.TestCase):
                 ["scene_001.mp4", "scene_002.mp4"],
             )
             self.assertEqual(list(output_root.rglob("*")), [])
+
+    def test_preview_includes_detected_scene_duration(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir) / "output"
+            temp_root = Path(tmpdir) / "temp"
+            clip_dir = temp_root / "scenedetect_clips"
+            output_root.mkdir()
+            clip_dir.mkdir(parents=True)
+            clip = clip_dir / "scene_001.mp4"
+            _write_dummy_video(clip)
+
+            preview_node = _load_preview_node(str(output_root), str(temp_root))
+            payload = preview_node.PySceneDetectPreviewVideos().preview(
+                FakeVideo(clip, duration_sec=1.25)
+            )
+
+            self.assertEqual(payload["ui"]["scene_previews"][0]["duration_sec"], 1.25)
 
     def test_save_to_fallback_writes_only_to_temp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
