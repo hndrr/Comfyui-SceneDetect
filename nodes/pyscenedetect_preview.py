@@ -79,7 +79,7 @@ class PySceneDetectPreviewVideos:
                 "video": (
                     "VIDEO",
                     {
-                        "tooltip": "Connect a VIDEO or the videos list from PySceneDetect: Video → Scenes. Files stay in temp; nothing is written to output.",
+                        "tooltip": "Connect a VIDEO or the scene_videos list from PySceneDetect: Video → Scenes. Files stay in temp; nothing is written to output.",
                     },
                 ),
             }
@@ -92,7 +92,7 @@ class PySceneDetectPreviewVideos:
     INPUT_IS_LIST = True
     DESCRIPTION = (
         "Preview VIDEO clips without saving them to the output directory. "
-        "Connect `videos` from PySceneDetect: Video → Scenes after enabling split_clips."
+        "Connect `scene_videos` from PySceneDetect: Video → Scenes after enabling split_clips."
     )
 
     def preview(self, video: Any):

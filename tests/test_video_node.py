@@ -145,7 +145,7 @@ class VideoNodeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
-            images, scenes_json, count, all_scenes_text, per_scene_prompt_list, videos = (
+            images, scenes_json, count, all_scenes_text, per_scene_prompt_list, scene_videos = (
                 video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
                     method="content",
@@ -166,7 +166,7 @@ class VideoNodeTests(unittest.TestCase):
         )
         self.assertIn("# Scenes (2)", all_scenes_text)
         self.assertEqual(per_scene_prompt_list, ["Scene 1/2", "Scene 2/2"])
-        self.assertEqual(videos, [])
+        self.assertEqual(scene_videos, [])
 
     def test_v1_input_types_include_show_all_settings(self):
         types = video_node.PySceneDetectVideo.INPUT_TYPES()
@@ -175,12 +175,15 @@ class VideoNodeTests(unittest.TestCase):
             types["required"]["method"][0],
             ["content", "adaptive", "threshold", "hash", "histogram"],
         )
+        self.assertEqual(
+            video_node.PySceneDetectVideo.RETURN_NAMES[-1], "scene_videos"
+        )
 
     def test_run_accepts_dynamic_combo_method_dict(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
-            images, scenes_json, count, _, _, videos = (
+            images, scenes_json, count, _, _, scene_videos = (
                 video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
                     method={
@@ -203,13 +206,13 @@ class VideoNodeTests(unittest.TestCase):
             [(0, 20), (20, 40)],
         )
         self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
-        self.assertEqual(videos, [])
+        self.assertEqual(scene_videos, [])
 
     def test_run_accepts_show_all_settings_node_extras(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
-            images, scenes_json, count, _, _, videos = (
+            images, scenes_json, count, _, _, scene_videos = (
                 video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
                     method="content",
@@ -225,7 +228,7 @@ class VideoNodeTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(images.shape, (1, 16, 16, 3))
         self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
-        self.assertEqual(videos, [])
+        self.assertEqual(scene_videos, [])
 
     @unittest.skipUnless(is_ffmpeg_available(), "ffmpeg is required to split clips")
     def test_split_clips_keeps_files_in_temp(self):
@@ -247,7 +250,7 @@ class VideoNodeTests(unittest.TestCase):
                     count,
                     _all_scenes_text,
                     _per_scene_prompt_list,
-                    videos,
+                    scene_videos,
                 ) = video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
                     method="content",
@@ -261,8 +264,8 @@ class VideoNodeTests(unittest.TestCase):
 
             scenes = json.loads(scenes_json)["scenes"]
             self.assertEqual(count, 2)
-            self.assertEqual(len(videos), 2)
-            for scene, clip in zip(scenes, videos):
+            self.assertEqual(len(scene_videos), 2)
+            for scene, clip in zip(scenes, scene_videos):
                 clip_path = Path(clip)
                 self.assertTrue(clip_path.is_file())
                 self.assertEqual(scene["clip_path"], clip)

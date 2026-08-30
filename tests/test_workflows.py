@@ -52,7 +52,7 @@ VIDEO_OUTPUTS = [
     "scene_count",
     "all_scenes_text",
     "per_scene_prompt_list",
-    "videos",
+    "scene_videos",
 ]
 LEGACY_OUTPUTS = [
     "images",
@@ -121,9 +121,13 @@ class SampleWorkflowTests(unittest.TestCase):
         video_in = next(slot for slot in detect["inputs"] if slot["name"] == "video")
         self.assertEqual(links[video_in["link"]][1], load["id"])
         self.assertEqual(links[preview["inputs"][0]["link"]][1], detect["id"])
-        self.assertEqual(links[preview["inputs"][0]["link"]][2], VIDEO_OUTPUTS.index("videos"))
+        self.assertEqual(
+            links[preview["inputs"][0]["link"]][2], VIDEO_OUTPUTS.index("scene_videos")
+        )
         self.assertEqual(links[save["inputs"][0]["link"]][1], detect["id"])
-        self.assertEqual(links[save["inputs"][0]["link"]][2], VIDEO_OUTPUTS.index("videos"))
+        self.assertEqual(
+            links[save["inputs"][0]["link"]][2], VIDEO_OUTPUTS.index("scene_videos")
+        )
 
         preview_any_targets = {
             slot["name"]: slot["links"][0]

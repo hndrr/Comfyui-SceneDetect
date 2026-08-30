@@ -105,19 +105,19 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `scene_count` (`INT`): Number of detected scenes.
   - `all_scenes_text` (`STRING`): Every scene in one text block. Connect to a text LLM for a single call about the whole video.
   - `per_scene_prompt_list` (`STRING` list): One prompt per scene, in the same order as `images`. Connect to a VLM so it runs once per representative frame.
-  - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list. Files stay in ComfyUI's temp directory. Connect to `PySceneDetect: Preview Videos` to inspect them in the graph, or to ComfyUI's `Save Video` to write them under the output directory.
+  - `scene_videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list. Files stay in ComfyUI's temp directory. Connect to `PySceneDetect: Preview Videos` to inspect them in the graph, or to ComfyUI's `Save Video` to write them under the output directory.
 
 ### `PySceneDetect: Preview Videos`
 
 ComfyUI's built-in `Save Video` is the only core node that shows a video preview, and it writes files to the output directory. Use this node when you only want to watch the unsaved clips.
 
-- Required input: `video` (`VIDEO`). `INPUT_IS_LIST` is enabled, so connect either a single `VIDEO` or the `videos` list from `PySceneDetect: Video → Scenes`.
+- Required input: `video` (`VIDEO`). `INPUT_IS_LIST` is enabled, so connect either a single `VIDEO` or the `scene_videos` list from `PySceneDetect: Video → Scenes`.
 - No graph outputs. After execution, one clip plays at a time. Use previous/next or the scene number to inspect the rest; only the visible clip is decoded, so a large scene count stays light.
 - Files already in temp are referenced in place. Other files are copied into `temp/scenedetect_preview/` for the `/view` endpoint. Nothing is written to the output directory.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
-The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list`. Clip splitting (`split_clips` / `videos`) exists only on the recommended `VIDEO` node, because the Legacy VHS path has no file-backed source for ffmpeg.
+The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list`. Clip splitting (`split_clips` / `scene_videos`) exists only on the recommended `VIDEO` node, because the Legacy VHS path has no file-backed source for ffmpeg.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -154,7 +154,7 @@ The legacy node keeps its original node ID and the original first three outputs 
 }
 ```
 
-Each entry in the `scenes` array provides the start/end frame indices, SMPTE-style timestamps, and the duration of the scene. When `split_clips` is enabled, each scene also includes a temporary `clip_path` used to build the `videos` output.
+Each entry in the `scenes` array provides the start/end frame indices, SMPTE-style timestamps, and the duration of the scene. When `split_clips` is enabled, each scene also includes a temporary `clip_path` used to build the `scene_videos` output.
 
 ## Passing scenes to an LLM or VLM
 
@@ -179,11 +179,11 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 3. Choose `method` (all fields for that detector appear). Leave `show_all_settings` on `false` for a short node, or set `true` to show resize, thumbs, prompt, downscale, and the other node options.
    Existing graphs that still have the old flat `method` combo must delete the node and add it again so ComfyUI loads the DynamicCombo schema.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
-5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`. Connect `videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.
+5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `scene_videos`. Connect `scene_videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.
 
 Recommended sample (`workflow/pyscene_workflow.json`) is rebuilt for the DynamicCombo schema (`method=content`, `split_clips=true`, `show_all_settings=false`):
 
-`Load Video` → `PySceneDetect: Video → Scenes` → `Preview Image` (`images`), `Preview Any` (`scenes_json` / `scene_count` / `all_scenes_text` / `per_scene_prompt_list`), `PySceneDetect: Preview Videos` (`videos`), and core `Save Video` (`videos`).
+`Load Video` → `PySceneDetect: Video → Scenes` → `Preview Image` (`images`), `Preview Any` (`scenes_json` / `scene_count` / `all_scenes_text` / `per_scene_prompt_list`), `PySceneDetect: Preview Videos` (`scene_videos`), and core `Save Video` (`scene_videos`).
 
 Legacy sample (`workflow/pyscene_workflow_legacy_vhs.json`) uses the same detector widgets without `split_clips`:
 
