@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict
-import json, ntpath, os, cv2, torch
+import json, ntpath, os, uuid, cv2, torch
 import numpy as np
 import folder_paths
 
@@ -58,13 +58,6 @@ class PySceneDetectVideo:
                 },
             ),
             "split_clips": ("BOOLEAN", {"default": False}),
-            "split_dir": (
-                "STRING",
-                {
-                    "default": "",
-                    "placeholder": "Relative to ComfyUI output; default: scene_clips",
-                },
-            ),
             "split_reencode": ("BOOLEAN", {"default": False}),
         }
         optional.update(detector_optional_input_types())
@@ -114,7 +107,6 @@ class PySceneDetectVideo:
         write_thumbs: bool = False,
         thumbs_dir: str = "",
         split_clips: bool = False,
-        split_dir: str = "",
         split_reencode: bool = False,
         prompt_template: str = "",
         **detector_options,
@@ -154,8 +146,12 @@ class PySceneDetectVideo:
             frames = read_video_frames(video_path, frame_indices)
 
             if split_clips and scene_list:
-                clip_subdir = split_dir.strip() or "scene_clips"
-                clip_dir = _resolve_output_path(output_root, clip_subdir)
+                clip_dir = os.path.join(
+                    folder_paths.get_temp_directory(),
+                    "scenedetect_clips",
+                    uuid.uuid4().hex,
+                )
+                os.makedirs(clip_dir, exist_ok=True)
                 clip_paths = split_scene_clips(
                     video_path,
                     scene_list,

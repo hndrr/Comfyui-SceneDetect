@@ -28,6 +28,7 @@ def _install_folder_paths_stub():
             return False
 
     module.get_output_directory = lambda: os.getcwd()
+    module.get_temp_directory = lambda: os.getcwd()
     module.is_within_directory = is_within_directory
     sys.modules["folder_paths"] = module
     return module
@@ -168,14 +169,17 @@ class VideoNodeTests(unittest.TestCase):
         self.assertEqual(videos, [])
 
     @unittest.skipUnless(is_ffmpeg_available(), "ffmpeg is required to split clips")
-    def test_split_clips_writes_videos_under_output(self):
+    def test_split_clips_keeps_files_in_temp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_root = Path(tmpdir) / "output"
+            temp_root = Path(tmpdir) / "temp"
             output_root.mkdir()
+            temp_root.mkdir()
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
             folder_paths = sys.modules["folder_paths"]
             folder_paths.get_output_directory = lambda: str(output_root)
+            folder_paths.get_temp_directory = lambda: str(temp_root)
 
             with patch.object(video_node, "load_video_from_file", side_effect=lambda path: path):
                 (
@@ -200,10 +204,12 @@ class VideoNodeTests(unittest.TestCase):
             self.assertEqual(count, 2)
             self.assertEqual(len(videos), 2)
             for scene, clip in zip(scenes, videos):
-                self.assertTrue(Path(clip).is_file())
+                clip_path = Path(clip)
+                self.assertTrue(clip_path.is_file())
                 self.assertEqual(scene["clip_path"], clip)
-                self.assertTrue(
-                    Path(clip).resolve().is_relative_to(output_root.resolve())
+                self.assertTrue(clip_path.resolve().is_relative_to(temp_root.resolve()))
+                self.assertFalse(
+                    clip_path.resolve().is_relative_to(output_root.resolve())
                 )
 
 
