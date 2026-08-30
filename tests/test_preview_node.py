@@ -122,9 +122,10 @@ class PreviewNodeTests(unittest.TestCase):
                 [FakeVideo(clip) for clip in clips]
             )
 
-            videos = payload["ui"]["videos"]
+            videos = payload["ui"]["scene_previews"]
             self.assertEqual(len(videos), 2)
             self.assertNotIn("images", payload["ui"])
+            self.assertNotIn("videos", payload["ui"])
             self.assertEqual(
                 [entry["filename"] for entry in videos],
                 ["scene_001.mp4", "scene_002.mp4"],
@@ -146,7 +147,7 @@ class PreviewNodeTests(unittest.TestCase):
                 FakeVideo(None, save_to_impl=save_to)
             )
 
-            entry = payload["ui"]["videos"][0]
+            entry = payload["ui"]["scene_previews"][0]
             copied = temp_root / entry["subfolder"] / entry["filename"]
             self.assertEqual(entry["subfolder"], "scenedetect_preview")
             self.assertEqual(entry["type"], "temp")
@@ -162,8 +163,9 @@ class PreviewNodeTests(unittest.TestCase):
             temp_root.mkdir()
             preview_node = _load_preview_node(str(output_root), str(temp_root))
             payload = preview_node.PySceneDetectPreviewVideos().preview([])
-            self.assertEqual(payload["ui"]["videos"], [])
+            self.assertEqual(payload["ui"]["scene_previews"], [])
             self.assertNotIn("images", payload["ui"])
+            self.assertNotIn("videos", payload["ui"])
 
 
 if __name__ == "__main__":
