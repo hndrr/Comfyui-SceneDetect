@@ -76,7 +76,7 @@ class PySceneDetectToImages:
         "scenes_json",
         "scene_count",
         "all_scenes_text",
-        "per_scene_prompt",
+        "per_scene_prompt_list",
     )
     OUTPUT_IS_LIST = (False, False, False, False, True)
     FUNCTION = "run"
@@ -170,7 +170,7 @@ class PySceneDetectToImages:
             image_tensors = [frame_to_tensor_bhwc(black)]
 
         batch = torch.cat(image_tensors, dim=0)  # (B,H,W,C)
-        all_scenes_text, per_scene_prompt = format_scenes_for_llm(
+        all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(
             rows, prompt_template
         )
 
@@ -193,7 +193,7 @@ class PySceneDetectToImages:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows), all_scenes_text, per_scene_prompt)
+        return (batch, scenes_json, len(rows), all_scenes_text, per_scene_prompt_list)
 
 
 NODE_CLASS_MAPPINGS["PySceneDetectToImages"] = PySceneDetectToImages

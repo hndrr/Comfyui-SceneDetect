@@ -91,7 +91,7 @@ class PySceneDetectVideo:
         "scenes_json",
         "scene_count",
         "all_scenes_text",
-        "per_scene_prompt",
+        "per_scene_prompt_list",
         "videos",
     )
     OUTPUT_IS_LIST = (False, False, False, False, True, True)
@@ -214,7 +214,7 @@ class PySceneDetectVideo:
             "trim_start_sec": start_time,
             "trim_duration_sec": trim_duration,
         }
-        all_scenes_text, per_scene_prompt = format_scenes_for_llm(
+        all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(
             rows, prompt_template
         )
         scenes_json = json.dumps(
@@ -241,7 +241,7 @@ class PySceneDetectVideo:
             scenes_json,
             len(rows),
             all_scenes_text,
-            per_scene_prompt,
+            per_scene_prompt_list,
             videos,
         )
 
