@@ -12,7 +12,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Detection methods from PySceneDetect 0.7: `content`, `adaptive`, `threshold`, `hash`, and `histogram`
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
-- LLM/VLM handoff: a readable scene list (`scenes_text`) plus per-scene prompts (`scene_prompts`)
+- LLM/VLM handoff: one document of every scene (`all_scenes_text`) plus one prompt per scene (`per_scene_prompt`)
 - Optionally split detected scenes into `VIDEO` clips with ffmpeg
 - Optionally store representative frames as JPEG thumbnails
 
@@ -94,13 +94,13 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`). Connect to a VLM node.
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
-  - `scenes_text` (`STRING`): Human/LLM-readable scene list. Connect to a text LLM.
-  - `scene_prompts` (`STRING` list): One prompt per scene, in the same order as `images`. Connect to a VLM prompt input.
+  - `all_scenes_text` (`STRING`): Every scene in one text block. Connect to a text LLM for a single call about the whole video.
+  - `per_scene_prompt` (`STRING` list): One prompt per scene, in the same order as `images`. Connect to a VLM so it runs once per representative frame.
   - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
-The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `scenes_text`, and `scene_prompts`. It does not split `VIDEO` clips.
+The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt`. It does not split `VIDEO` clips.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -143,7 +143,7 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 
 This package does not call an LLM API. Connect the outputs to existing ComfyUI text or vision nodes (JoyCaption, OpenAI-compatible nodes, Ollama, and similar).
 
-- Text LLM: connect `scenes_text` to a `STRING` prompt input. The value is a readable scene list, for example:
+- Text LLM: connect `all_scenes_text` to a `STRING` prompt input. The value is a readable scene list, for example:
 
 ```
 # Scenes (2)
@@ -151,7 +151,7 @@ This package does not call an LLM API. Connect the outputs to existing ComfyUI t
 2. 00:00:02.000 – 00:00:04.000 | 2.000s | frames 20-40
 ```
 
-- VLM: connect `images` to the image input and `scene_prompts` to the prompt input. `prompt_template` placeholders are `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, `{duration_frames}`, and `{clip_path}`.
+- VLM: connect `images` to the image input and `per_scene_prompt` to the prompt input. `prompt_template` placeholders are `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, `{duration_frames}`, and `{clip_path}`.
 
 MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scenes_json` timestamps if you need to align those tools yourself.
 
@@ -161,7 +161,7 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
 3. Adjust `method`, `threshold`, and `min_scene_len_*` to match the video source.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
-5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `scenes_text`, and optional clips on `videos`.
+5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`.
 
 Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
