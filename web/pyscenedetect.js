@@ -107,6 +107,57 @@ function waitForEventOrTimeout(video, eventName, timeoutMs) {
   ]);
 }
 
+function waitForPresentedFrame(video) {
+  if (typeof video.requestVideoFrameCallback !== "function") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    video.requestVideoFrameCallback(() => resolve());
+  });
+}
+
+function ensureCover(stage) {
+  let cover = stage.querySelector("[data-psd-cover]");
+  if (cover) {
+    return cover;
+  }
+  cover = document.createElement("canvas");
+  cover.dataset.psdCover = "1";
+  cover.style.position = "absolute";
+  cover.style.inset = "0";
+  cover.style.width = "100%";
+  cover.style.height = "100%";
+  cover.style.objectFit = "contain";
+  cover.style.pointerEvents = "none";
+  cover.style.zIndex = "3";
+  cover.style.opacity = "0";
+  stage.appendChild(cover);
+  return cover;
+}
+
+function coverFromVideo(stage, video) {
+  const cover = ensureCover(stage);
+  if (!video || video.readyState < 2 || !video.videoWidth) {
+    return cover;
+  }
+  try {
+    cover.width = video.videoWidth;
+    cover.height = video.videoHeight;
+    cover.getContext("2d").drawImage(video, 0, 0);
+    cover.style.opacity = "1";
+  } catch {
+    // Cross-origin or empty; keep whatever was showing underneath.
+  }
+  return cover;
+}
+
+function hideCover(stage) {
+  const cover = stage.querySelector("[data-psd-cover]");
+  if (cover) {
+    cover.style.opacity = "0";
+  }
+}
+
 async function waitForStartFrame(video) {
   video.pause();
   if (video.readyState < 2) {
@@ -121,6 +172,7 @@ async function waitForStartFrame(video) {
   } catch {
     return;
   }
+  await waitForPresentedFrame(video);
 }
 
 function playbackLimitSec(video, sceneDuration) {
@@ -139,15 +191,29 @@ function playbackLimitSec(video, sceneDuration) {
   return Math.min(...limits);
 }
 
-function attachLoopFromStart(video, sceneDuration) {
-  const restart = (time) => {
+function attachLoopFromStart(video, sceneDuration, stage) {
+  let restarting = false;
+  const restart = async (time) => {
     const limit = playbackLimitSec(video, sceneDuration);
-    if (limit == null) {
+    if (limit == null || restarting || !video.isConnected) {
       return;
     }
-    if (time >= limit - 1 / 120) {
-      video.currentTime = 0;
+    if (time < limit - 1 / 120) {
+      return;
     }
+    restarting = true;
+    coverFromVideo(stage, video);
+    video.pause();
+    try {
+      video.currentTime = 0;
+      await waitForEventOrTimeout(video, "seeked", 400);
+      await waitForPresentedFrame(video);
+    } catch {
+      // Keep the cover until the next successful start frame.
+    }
+    hideCover(stage);
+    video.play().catch(() => {});
+    restarting = false;
   };
   const onFrame = (_now, meta) => {
     if (!video.isConnected) {
@@ -167,7 +233,7 @@ function attachLoopFromStart(video, sceneDuration) {
 
 function discardPendingVideos(stage, keep) {
   for (const child of [...stage.children]) {
-    if (child === keep) {
+    if (child === keep || child.dataset.psdCover === "1") {
       continue;
     }
     unloadVideo(child);
@@ -200,7 +266,7 @@ function showPreviewScene(node, index) {
 
   if (current) {
     current.pause();
-    current.style.visibility = "hidden";
+    coverFromVideo(stage, current);
   }
 
   const token = (node._psdPreviewLoadToken = (node._psdPreviewLoadToken || 0) + 1);
@@ -208,7 +274,7 @@ function showPreviewScene(node, index) {
 
   const incoming = document.createElement("video");
   stylePreviewVideo(incoming);
-  attachLoopFromStart(incoming, entries[next].duration_sec);
+  attachLoopFromStart(incoming, entries[next].duration_sec, stage);
   incoming.style.position = "absolute";
   incoming.style.left = "-9999px";
   incoming.style.top = "0";
@@ -217,7 +283,7 @@ function showPreviewScene(node, index) {
   incoming.style.opacity = "0";
   incoming.style.pointerEvents = "none";
 
-  const reveal = () => {
+  const reveal = async () => {
     if (token !== node._psdPreviewLoadToken) {
       unloadVideo(incoming);
       incoming.remove();
@@ -227,14 +293,17 @@ function showPreviewScene(node, index) {
     incoming.style.right = "0";
     incoming.style.bottom = "0";
     incoming.style.opacity = "1";
+    incoming.style.zIndex = "2";
     incoming.style.pointerEvents = "";
     const outgoing = node._psdPreviewVideo;
     node._psdPreviewVideo = incoming;
+    await incoming.play().catch(() => {});
+    await waitForPresentedFrame(incoming);
     if (outgoing && outgoing !== incoming) {
       unloadVideo(outgoing);
       outgoing.remove();
     }
-    incoming.play().catch(() => {});
+    hideCover(stage);
   };
 
   incoming.addEventListener(

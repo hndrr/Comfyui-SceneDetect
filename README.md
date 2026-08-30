@@ -112,7 +112,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 ComfyUI's built-in `Save Video` is the only core node that shows a video preview, and it writes files to the output directory. Use this node when you only want to watch the unsaved clips.
 
 - Required input: `video` (`VIDEO`). `INPUT_IS_LIST` is enabled, so connect either a single `VIDEO` or the `scene_videos` list from `PySceneDetect: Video → Scenes`.
-- No graph outputs. After execution, one clip plays at a time. Use previous/next or the scene number to inspect the rest; only the visible clip is decoded, so a large scene count stays light. Playback loops at the detected scene duration so the copy-split tail (the next scene's first frame) is not shown.
+- No graph outputs. After execution, one clip plays at a time. Use previous/next or the scene number to inspect the rest; only the visible clip is decoded, so a large scene count stays light. Playback loops at the detected scene duration. Scene switches freeze the current picture until the next clip's first frame is presented, so the player does not flash black or a decoder leftover.
 - Files already in temp are referenced in place. Other files are copied into `temp/scenedetect_preview/` for the `/view` endpoint. Nothing is written to the output directory.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
