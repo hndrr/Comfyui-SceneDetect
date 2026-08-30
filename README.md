@@ -69,8 +69,8 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `video` (`VIDEO`): Connect the output from ComfyUI's built-in `Load Video` node. The video is streamed from the compressed source instead of being expanded into a full frame batch.
   - `method` (`content|adaptive|threshold`): Scene detection method.
   - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
-  - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Preferred when FPS information is available.
-  - `min_scene_len_frames` (`INT`): Minimum scene length in frames (fallback when FPS is unknown).
+  - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Values greater than zero override `min_scene_len_frames`.
+  - `min_scene_len_frames` (`INT`): Minimum scene length in frames, used when `min_scene_len_sec` is `0`.
   - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold uses color in PySceneDetect 0.7).
 
 - Optional inputs
@@ -79,7 +79,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `max_height` (`INT`): Maximum height of the representative frame (0 disables resizing).
   - `limit_scenes` (`INT`): Limit the number of scenes processed from the start (0 disables the limit).
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
-  - `thumbs_dir` (`STRING`): Directory for thumbnails. When empty, `scene_thumbs` is created in the working directory.
+  - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
 
 - Outputs
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
