@@ -44,6 +44,7 @@ class PySceneDetectVideo:
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
         optional = {
+            "show_all_settings": ("BOOLEAN", {"default": False}),
             "representative": (["start", "middle", "end"], {"default": "start"}),
             "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
             "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),

@@ -15,6 +15,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - LLM/VLM handoff: one document of every scene (`all_scenes_text`) plus one prompt per scene (`per_scene_prompt_list`)
 - Optionally split detected scenes into `VIDEO` clips with ffmpeg
 - Optionally store representative frames as JPEG thumbnails
+- Detector-specific widgets stay hidden until that `method` is selected (`show_all_settings` reveals every field)
 
 ## Requirements
 
@@ -78,6 +79,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold/hash/histogram ignore this flag).
 
 - Optional inputs
+  - `show_all_settings` (`BOOLEAN`): Show every detector field. When false, only widgets used by the selected `method` are visible.
   - `representative` (`start|middle|end`): Position of the representative frame.
   - `max_width` (`INT`): Maximum width of the representative frame (0 disables resizing).
   - `max_height` (`INT`): Maximum height of the representative frame (0 disables resizing).
