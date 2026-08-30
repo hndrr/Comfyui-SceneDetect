@@ -1,4 +1,4 @@
-# [WIP] Comfyui-SceneDetect
+# Comfyui-SceneDetect
 
 ![workflow](assets/2025-10-25-235141.png)
 
