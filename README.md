@@ -1,6 +1,8 @@
 # Comfyui-SceneDetect
 
-![workflow](assets/2025-10-25-235141.png)
+![legacy VHS workflow screenshot from 2025-10](assets/2025-10-25-235141.png)
+
+The screenshot is the older three-output VHS graph. Current sample graphs are `workflow/pyscene_workflow.json` (recommended `VIDEO` path) and `workflow/pyscene_workflow_legacy_vhs.json`.
 
 Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, LLM-ready text, and the detected scene count. The recommended node can also split each scene into a `VIDEO` clip.
 
@@ -179,9 +181,13 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
 5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`. Connect `videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.
 
-Recommended sample (`workflow/pyscene_workflow.json`): `Load Video` → `PySceneDetect: Video → Scenes` (`split_clips` on) → `Preview Image` / `Preview Any` / `Preview Videos` / core `Save Video`.
+Recommended sample (`workflow/pyscene_workflow.json`) is rebuilt for the DynamicCombo schema (`method=content`, `split_clips=true`, `show_all_settings=false`):
 
-Legacy sample (`workflow/pyscene_workflow_legacy_vhs.json`): VHS `Load Video` → `PySceneDetect: Scenes → Images (Legacy VHS)` → `Preview Image` / `Preview Any`.
+`Load Video` → `PySceneDetect: Video → Scenes` → `Preview Image` (`images`), `Preview Any` (`scenes_json` / `scene_count` / `all_scenes_text` / `per_scene_prompt_list`), `PySceneDetect: Preview Videos` (`videos`), and core `Save Video` (`videos`).
+
+Legacy sample (`workflow/pyscene_workflow_legacy_vhs.json`) uses the same detector widgets without `split_clips`:
+
+VHS `Load Video` → `PySceneDetect: Scenes → Images (Legacy VHS)` → `Preview Image` / `Preview Any` for every output, including `per_scene_prompt_list`.
 
 Existing workflows containing `PySceneDetectToImages` continue to load as the Legacy VHS node.
 
