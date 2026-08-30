@@ -97,7 +97,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `prompt_template` (`STRING`): Per-scene prompt template for VLM nodes. Empty uses `Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot.`
   - `start_in_scene` (`BOOLEAN`): Treat the first frame as already inside a scene.
   - `downscale` (`INT`): Detector downscale factor (`0` lets PySceneDetect choose).
-  - `split_reencode` (`BOOLEAN`): Shown under `split_clips=true`. When false, copy streams (`-c copy`). When true, re-encode with libx264.
+  - `split_reencode` (`BOOLEAN`): Shown under `split_clips=true`. Default `true` re-encodes with libx264 so cuts match detected scene boundaries (needed for Preview Videos). Set `false` to copy streams (`-c copy`); faster, but keyframe-aligned only.
 
 - Outputs
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`). Connect to a VLM node.
@@ -207,8 +207,8 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 - High memory use with VHS: Prefer the built-in `Load Video` and `PySceneDetect: Video → Scenes`. The legacy VHS path must keep its full `IMAGE` batch in memory.
 - Latent batches in legacy workflows: If a VAE is connected to the VHS `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
 - OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python-headless` is installed.
-- Clip splitting fails: Confirm `ffmpeg` is on `PATH`. The default is stream copy (`-c copy`), which can miss keyframes or fail when the audio codec cannot be muxed into MP4; the node then retries with libx264. Enable `split_reencode` for frame-accurate cuts from the start.
-- Preview Videos flashes the next scene's first frame: `-c copy` keeps frames until the next keyframe, so the current file's tail is the next shot. Preview loops at the detected `duration_sec` so that tail is not shown. `Save Video` still writes the raw clip; turn on `split_reencode` if saved files must match the scene boundary.
+- Clip splitting fails: Confirm `ffmpeg` is on `PATH`. The default is a libx264 re-encode so scene boundaries are frame-accurate. Set `split_reencode` to `false` for stream copy (`-c copy`); if copy cannot mux into MP4 the node retries with libx264.
+- Preview Videos flashes the next scene's first frame: That happens when clips were cut with `-c copy`. Leave `split_reencode` on (the default). Preview also loops at the detected `duration_sec` so a copy-split tail is hidden, but saved files still contain it unless you re-encode.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
 - Changing `method` does not swap detector fields: The node is still the old V1 combo from a previous version. Delete it, add `PySceneDetect: Video → Scenes` again, and restart ComfyUI. Widget visibility is handled by core DynamicCombo, not by this package's JavaScript.

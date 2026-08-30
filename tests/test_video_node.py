@@ -176,7 +176,7 @@ class VideoNodeTests(unittest.TestCase):
             ["content", "adaptive", "threshold", "hash", "histogram"],
         )
         self.assertEqual(
-            video_node.PySceneDetectVideo.RETURN_NAMES[-1], "scene_videos"
+            types["optional"]["split_reencode"][1]["default"], True
         )
 
     def test_run_accepts_dynamic_combo_method_dict(self):

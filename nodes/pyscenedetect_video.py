@@ -78,7 +78,7 @@ class PySceneDetectVideo(_NODE_BASE):
                     },
                 ),
                 "split_clips": ("BOOLEAN", {"default": False}),
-                "split_reencode": ("BOOLEAN", {"default": False}),
+                "split_reencode": ("BOOLEAN", {"default": True}),
             }
             optional.update(detector_optional_input_types())
             return {
@@ -168,7 +168,7 @@ class PySceneDetectVideo(_NODE_BASE):
         write_thumbs: bool = False,
         thumbs_dir: str = "",
         split_clips: bool = False,
-        split_reencode: bool = False,
+        split_reencode: bool = True,
         prompt_template: str = "",
         **detector_options,
     ):

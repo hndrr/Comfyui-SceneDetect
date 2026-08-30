@@ -97,12 +97,12 @@ def split_clips_combo():
         raise RuntimeError("ComfyUI V3 API is required.")
     return io.DynamicCombo.Input(
         "split_clips",
-        tooltip="false: no clips. true: ffmpeg scene clips in temp, with optional re-encode.",
+        tooltip="false: no clips. true: ffmpeg scene clips in temp. Re-encode is on by default so cuts match scene boundaries.",
         options=[
             io.DynamicCombo.Option("false", []),
             io.DynamicCombo.Option(
                 "true",
-                [io.Boolean.Input("split_reencode", default=False)],
+                [io.Boolean.Input("split_reencode", default=True)],
             ),
         ],
     )
