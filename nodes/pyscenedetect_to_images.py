@@ -1,10 +1,11 @@
 from __future__ import annotations
 from typing import Any, Dict
-import os, json, cv2, torch, tempfile
+import os, json, cv2, torch
 import numpy as np
 
 from ..utils.video_ops import (
-    detect_scenes,
+    TensorVideoStream,
+    detect_scenes_from_video,
     timecodes_to_dict,
     pick_frame_index,
     resize_keep_ar,
@@ -106,61 +107,15 @@ class PySceneDetectToImages:
 
         video_info_json = {k: _jsonable(v) for k, v in video_info.items()}
 
-        frames_cpu = image.detach().cpu()
-        if frames_cpu.shape[1] in (1, 3, 4) and frames_cpu.shape[2] > 4 and frames_cpu.shape[3] > 4:
-            frames_np = frames_cpu.numpy().transpose(0, 2, 3, 1)
-        elif frames_cpu.shape[-1] in (1, 3, 4):
-            frames_np = frames_cpu.numpy()
-        else:
-            raise ValueError("image cannot be interpreted as (B,C,H,W) or (B,H,W,C).")
-
-        max_val = float(frames_cpu.max().item())
-        if max_val <= 1.0 + 1e-6:
-            frames_rgb = np.clip(frames_np * 255.0, 0, 255).astype(np.uint8)
-        else:
-            frames_rgb = np.clip(frames_np, 0, 255).astype(np.uint8)
-
-        if frames_rgb.shape[-1] == 4:
-            frames_rgb = frames_rgb[..., :3]
-        if frames_rgb.shape[-1] == 1:
-            frames_rgb = np.repeat(frames_rgb, 3, axis=-1)
-
-        height, width = int(frames_rgb.shape[1]), int(frames_rgb.shape[2])
-        frames_bgr = [frame[..., ::-1].copy() for frame in frames_rgb]
-
-        with tempfile.TemporaryDirectory(prefix="scenedetect_") as tmpd:
-            tmp_video = os.path.join(tmpd, "input.avi")
-
-            def _open_writer(path: str):
-                for code in ("MJPG", "mp4v", "XVID"):
-                    writer = cv2.VideoWriter(
-                        path,
-                        cv2.VideoWriter_fourcc(*code),
-                        float(fps),
-                        (int(width), int(height)),
-                    )
-                    if writer.isOpened():
-                        return writer
-                return None
-
-            writer = _open_writer(tmp_video)
-            if writer is None:
-                raise RuntimeError("Failed to create temporary video: no compatible codec found.")
-
-            try:
-                for frame_bgr in frames_bgr:
-                    writer.write(frame_bgr)
-            finally:
-                writer.release()
-
-            scene_list, fps_detected = detect_scenes(
-                tmp_video,
-                method,
-                threshold,
-                min_scene_len_sec,
-                min_scene_len_frames,
-                luma_only,
-            )
+        video = TensorVideoStream(image, fps)
+        scene_list, fps_detected = detect_scenes_from_video(
+            video,
+            method,
+            threshold,
+            min_scene_len_sec,
+            min_scene_len_frames,
+            luma_only,
+        )
 
         if fps_detected > 0:
             fps = fps_detected
@@ -177,9 +132,9 @@ class PySceneDetectToImages:
 
         for row in rows:
             fidx = pick_frame_index(row, representative)
-            if fidx < 0 or fidx >= len(frames_bgr):
+            if fidx < 0 or fidx >= image.shape[0]:
                 continue
-            frame = frames_bgr[fidx]
+            frame = video.frame_at(fidx)
 
             h, w = frame.shape[:2]
             nw, nh = resize_keep_ar(w, h, max_width, max_height)

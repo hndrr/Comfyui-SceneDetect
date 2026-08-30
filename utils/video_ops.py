@@ -1,10 +1,108 @@
 from __future__ import annotations
+from fractions import Fraction
 from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
 import torch
 from scenedetect import FrameTimecode, SceneManager, open_video
 from scenedetect.detectors import ContentDetector, AdaptiveDetector, ThresholdDetector
+from scenedetect.video_stream import VideoStream
+
+
+class TensorVideoStream(VideoStream):
+    BACKEND_NAME = "tensor"
+
+    def __init__(self, frames: torch.Tensor, fps: float):
+        self._frames = frames.detach()
+        self._frame_rate = Fraction(float(fps)).limit_denominator(1_000_000)
+        self._next_frame = 0
+
+        if (
+            frames.shape[1] in (1, 3, 4)
+            and frames.shape[2] > 4
+            and frames.shape[3] > 4
+        ):
+            self._channel_first = True
+            self._height, self._width = int(frames.shape[2]), int(frames.shape[3])
+        elif frames.shape[-1] in (1, 3, 4):
+            self._channel_first = False
+            self._height, self._width = int(frames.shape[1]), int(frames.shape[2])
+        else:
+            raise ValueError(
+                "image cannot be interpreted as (B,C,H,W) or (B,H,W,C)."
+            )
+
+        self._normalized = float(self._frames.max().item()) <= 1.0 + 1e-6
+
+    @property
+    def path(self) -> str:
+        return ""
+
+    @property
+    def name(self) -> str:
+        return "tensor"
+
+    @property
+    def is_seekable(self) -> bool:
+        return True
+
+    @property
+    def frame_rate(self) -> Fraction:
+        return self._frame_rate
+
+    @property
+    def duration(self) -> FrameTimecode:
+        return FrameTimecode(len(self._frames), self._frame_rate)
+
+    @property
+    def frame_size(self) -> Tuple[int, int]:
+        return self._width, self._height
+
+    @property
+    def aspect_ratio(self) -> float:
+        return 1.0
+
+    @property
+    def position(self) -> FrameTimecode:
+        return FrameTimecode(max(0, self._next_frame - 1), self._frame_rate)
+
+    @property
+    def position_ms(self) -> float:
+        return self.position.seconds * 1000.0
+
+    @property
+    def frame_number(self) -> int:
+        return self._next_frame
+
+    def frame_at(self, index: int) -> np.ndarray:
+        frame = self._frames[index].to(device="cpu")
+        if self._channel_first:
+            frame = frame.permute(1, 2, 0)
+        frame_rgb = frame.numpy()
+        if self._normalized:
+            frame_rgb = frame_rgb * 255.0
+        frame_rgb = np.clip(frame_rgb, 0, 255).astype(np.uint8)
+        if frame_rgb.shape[-1] == 4:
+            frame_rgb = frame_rgb[..., :3]
+        elif frame_rgb.shape[-1] == 1:
+            frame_rgb = np.repeat(frame_rgb, 3, axis=-1)
+        return frame_rgb[..., ::-1].copy()
+
+    def read(self, decode: bool = True) -> np.ndarray | bool:
+        if self._next_frame >= len(self._frames):
+            return False
+        index = self._next_frame
+        self._next_frame += 1
+        return self.frame_at(index) if decode else True
+
+    def reset(self) -> None:
+        self._next_frame = 0
+
+    def seek(self, target: Any) -> None:
+        frame = FrameTimecode(target, self._frame_rate).frame_num
+        if frame < 0:
+            raise ValueError("target must be greater than or equal to 0")
+        self._next_frame = min(frame, len(self._frames))
 
 
 def choose_detector(
@@ -83,6 +181,24 @@ def detect_scenes(
     luma_only: bool,
 ):
     video = open_video(video_path)
+    return detect_scenes_from_video(
+        video,
+        method,
+        threshold,
+        min_scene_len_sec,
+        min_scene_len_frames,
+        luma_only,
+    )
+
+
+def detect_scenes_from_video(
+    video: VideoStream,
+    method: str,
+    threshold: float,
+    min_scene_len_sec: float,
+    min_scene_len_frames: int,
+    luma_only: bool,
+):
     fps = float(getattr(video, "frame_rate", 0.0))
     min_scene_len = (
         max(0.0, float(min_scene_len_sec))
@@ -97,7 +213,7 @@ def detect_scenes(
         manager.detect_scenes(video=video, show_progress=False)
         scene_list = manager.get_scene_list()
     finally:
-        # Ensure the temp video file is released even if detection raises.
+        # Ensure file-backed streams are released even if detection raises.
         release = getattr(video, "release", None)
         if callable(release):
             release()
