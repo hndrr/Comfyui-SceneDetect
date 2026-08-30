@@ -213,11 +213,13 @@ class VideoNodeTests(unittest.TestCase):
                 video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
                     method={
-                        "show_all_settings": "true",
                         "method": "content",
-                        "threshold": 10.0,
-                        "luma_only": False,
-                        "hash_threshold": 0.395,
+                        "show_all_settings": {
+                            "show_all_settings": "true",
+                            "threshold": 10.0,
+                            "luma_only": False,
+                            "delta_hue": 1.0,
+                        },
                     },
                     threshold=999.0,
                     min_scene_len_sec=0.0,

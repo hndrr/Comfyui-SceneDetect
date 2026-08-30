@@ -16,12 +16,7 @@ from ..utils.video_ops import (
     frame_to_tensor_bhwc,
     unpack_method_input,
 )
-from .schema_v3 import (
-    _NODE_BASE,
-    common_scene_inputs,
-    io,
-    show_all_settings_combo,
-)
+from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
 
 
 class _MultiInput(str):
@@ -105,7 +100,7 @@ class PySceneDetectToImages(_NODE_BASE):
             inputs=[
                 io.Image.Input("image"),
                 io.Custom("VHS_VIDEOINFO").Input("video_info"),
-                show_all_settings_combo(),
+                method_dynamic_combo(),
                 *common_scene_inputs(include_split=False),
             ],
             outputs=[
@@ -118,11 +113,11 @@ class PySceneDetectToImages(_NODE_BASE):
         )
 
     @classmethod
-    def execute(cls, image, video_info, show_all_settings, **kwargs):
+    def execute(cls, image, video_info, method, **kwargs):
         results = cls().run(
             image,
             video_info,
-            show_all_settings,
+            method,
             threshold=kwargs.pop("threshold", 27.0),
             min_scene_len_sec=kwargs.pop("min_scene_len_sec", 0.0),
             min_scene_len_frames=kwargs.pop("min_scene_len_frames", 15),

@@ -16,7 +16,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Optionally split detected scenes into `VIDEO` clips with ffmpeg
 - Preview unsaved clips with `PySceneDetect: Preview Videos` (writes nothing to the output directory)
 - Optionally store representative frames as JPEG thumbnails
-- Detector widgets use ComfyUI's native DynamicCombo. `show_all_settings=false` nests only the selected method; `true` shows every detector field
+- Detector widgets use ComfyUI's native DynamicCombo. `show_all_settings` is nested under the selected `method`: `false` shows that method's main fields, `true` shows the rest of *that* method only
 
 ## Requirements
 
@@ -74,13 +74,12 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 
 - Required inputs
   - `video` (`VIDEO`): Connect the output from ComfyUI's built-in `Load Video` node. The video is streamed from the compressed source instead of being expanded into a full frame batch.
-  - `show_all_settings` (`false|true`): DynamicCombo. `false` shows only the selected `method` and its nested fields. `true` shows every detector field at once.
-  - `method` (`content|adaptive|threshold|hash|histogram`): Scene detection method. When `show_all_settings` is `false`, ComfyUI nests only the fields for the selected method:
-    - `content`: `threshold`, `luma_only`, `delta_hue`, `delta_sat`, `delta_lum`, `delta_edges`, `kernel_size`
-    - `adaptive`: `adaptive_threshold`, `window_width`, `min_content_val`, `luma_only`, plus the same `delta_*` / `kernel_size` weights
-    - `threshold`: `threshold`, `fade_bias`, `add_final_scene`, `threshold_method`
-    - `hash`: `hash_threshold`, `hash_size`, `hash_lowpass`
-    - `histogram`: `hist_threshold`, `hist_bins`
+  - `method` (`content|adaptive|threshold|hash|histogram`): Scene detection method. Nested `show_all_settings` (`false|true`) expands only this method:
+    - `content` (`false`): `threshold`, `luma_only`. `true` also shows `delta_hue`, `delta_sat`, `delta_lum`, `delta_edges`, `kernel_size`
+    - `adaptive` (`false`): `adaptive_threshold`, `window_width`, `min_content_val`, `luma_only`. `true` also shows the same `delta_*` / `kernel_size` weights
+    - `threshold` (`false`): `threshold`. `true` also shows `fade_bias`, `add_final_scene`, `threshold_method`
+    - `hash` (`false`): `hash_threshold`. `true` also shows `hash_size`, `hash_lowpass`
+    - `histogram` (`false`): `hist_threshold`. `true` also shows `hist_bins`
   - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Values greater than zero override `min_scene_len_frames`.
   - `min_scene_len_frames` (`INT`): Minimum scene length in frames, used when `min_scene_len_sec` is `0`.
   - `representative` (`start|middle|end`): Position of the representative frame.
@@ -174,7 +173,7 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 
 1. Load a video with ComfyUI's built-in `Load Video` node.
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
-3. Choose `method`. With `show_all_settings` left on `false`, only that detector's nested fields are shown. Set it to `true` to see every detector field.
+3. Choose `method`. Leave `show_all_settings` on `false` for that method's main fields, or set `true` to expand the rest of the same method (never other detectors).
    Existing graphs that still have the old flat `method` combo must delete the node and add it again so ComfyUI loads the DynamicCombo schema.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
 5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`. Connect `videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.

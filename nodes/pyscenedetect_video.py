@@ -21,12 +21,7 @@ from ..utils.video_ops import (
     unpack_method_input,
     video_source_path,
 )
-from .schema_v3 import (
-    _NODE_BASE,
-    common_scene_inputs,
-    io,
-    show_all_settings_combo,
-)
+from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
 
 
 def _resolve_output_path(output_root: str, relative_path: str) -> str:
@@ -115,7 +110,7 @@ class PySceneDetectVideo(_NODE_BASE):
             category="Video/PySceneDetect",
             inputs=[
                 io.Video.Input("video"),
-                show_all_settings_combo(),
+                method_dynamic_combo(),
                 *common_scene_inputs(include_split=True),
             ],
             outputs=[
@@ -129,10 +124,10 @@ class PySceneDetectVideo(_NODE_BASE):
         )
 
     @classmethod
-    def execute(cls, video, show_all_settings, **kwargs):
+    def execute(cls, video, method, **kwargs):
         results = cls().run(
             video,
-            show_all_settings,
+            method,
             threshold=kwargs.pop("threshold", 27.0),
             min_scene_len_sec=kwargs.pop("min_scene_len_sec", 0.0),
             min_scene_len_frames=kwargs.pop("min_scene_len_frames", 15),
