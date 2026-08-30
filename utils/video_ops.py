@@ -168,31 +168,30 @@ def unpack_method_input(
 ) -> Tuple[str, float, bool, Dict[str, Any]]:
     """Flatten a V3 DynamicCombo `method` dict, or pass through a plain method name."""
     extras = dict(extra or {})
-
-    def absorb(payload: Any) -> Any:
-        if not isinstance(payload, dict):
-            return payload
-        payload = dict(payload)
-        nested_settings = payload.pop("show_all_settings", None)
-        nested_method = payload.pop("method", None)
-        extras.update(payload)
-        if isinstance(nested_settings, dict):
-            absorbed = absorb(nested_settings)
-            if nested_method is None:
-                nested_method = absorbed
-        elif nested_method is not None:
-            nested_method = absorb(nested_method)
-        return nested_method
-
-    absorbed = absorb(method)
-    if absorbed is not None:
-        method = absorbed
     extras.pop("show_all_settings", None)
+    if isinstance(method, dict):
+        selected = method.get("method", "content")
+        extras.update({key: value for key, value in method.items() if key != "method"})
+        extras.pop("show_all_settings", None)
+        method = selected
     if "threshold" in extras:
         threshold = extras.pop("threshold")
     if "luma_only" in extras:
         luma_only = extras.pop("luma_only")
     return str(method or "content"), float(threshold), bool(luma_only), extras
+
+
+def unpack_toggle_combo(value: Any, name: str) -> Tuple[bool, Dict[str, Any]]:
+    """Flatten a V3 DynamicCombo used as an on/off toggle with nested fields."""
+    if isinstance(value, dict):
+        raw = value.get(name, False)
+        extras = {key: item for key, item in value.items() if key != name}
+        return _is_truthy(raw), extras
+    return _is_truthy(value), {}
+
+
+def _is_truthy(value: Any) -> bool:
+    return value is True or value == 1 or str(value).lower() == "true"
 
 
 def detector_optional_input_types() -> Dict[str, Any]:

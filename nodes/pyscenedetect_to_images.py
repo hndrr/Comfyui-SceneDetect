@@ -15,6 +15,7 @@ from ..utils.video_ops import (
     resize_keep_ar,
     frame_to_tensor_bhwc,
     unpack_method_input,
+    unpack_toggle_combo,
 )
 from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
 
@@ -114,14 +115,24 @@ class PySceneDetectToImages(_NODE_BASE):
 
     @classmethod
     def execute(cls, image, video_info, method, **kwargs):
+        _, extra_ui = unpack_toggle_combo(
+            kwargs.pop("show_all_settings", False), "show_all_settings"
+        )
+        kwargs.update(extra_ui)
+        method, threshold, luma_only, detector_options = unpack_method_input(
+            method,
+            kwargs.pop("threshold", 27.0),
+            kwargs.pop("luma_only", True),
+        )
+        kwargs.update(detector_options)
         results = cls().run(
             image,
             video_info,
             method,
-            threshold=kwargs.pop("threshold", 27.0),
+            threshold=threshold,
             min_scene_len_sec=kwargs.pop("min_scene_len_sec", 0.0),
             min_scene_len_frames=kwargs.pop("min_scene_len_frames", 15),
-            luma_only=kwargs.pop("luma_only", True),
+            luma_only=luma_only,
             **kwargs,
         )
         return io.NodeOutput(*results)

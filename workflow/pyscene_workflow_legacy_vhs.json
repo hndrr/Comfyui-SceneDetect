@@ -119,20 +119,17 @@
       },
       "widgets_values": [
         "content",
-        "false",
         27.0,
         true,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        0,
         0.0,
         15,
         "start",
-        0,
-        0,
-        0,
-        false,
-        "",
-        "",
-        false,
-        0
+        "false"
       ]
     },
     {

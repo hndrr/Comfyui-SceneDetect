@@ -205,31 +205,25 @@ class VideoNodeTests(unittest.TestCase):
         self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
         self.assertEqual(videos, [])
 
-    def test_run_accepts_show_all_settings_wrapper(self):
+    def test_run_accepts_show_all_settings_node_extras(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
-            _images, scenes_json, count, _, _, videos = (
+            images, scenes_json, count, _, _, videos = (
                 video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
-                    method={
-                        "method": "content",
-                        "show_all_settings": {
-                            "show_all_settings": "true",
-                            "threshold": 10.0,
-                            "luma_only": False,
-                            "delta_hue": 1.0,
-                        },
-                    },
-                    threshold=999.0,
+                    method="content",
+                    threshold=10.0,
                     min_scene_len_sec=0.0,
                     min_scene_len_frames=1,
-                    luma_only=True,
+                    luma_only=False,
+                    max_width=16,
+                    limit_scenes=1,
                 )
             )
 
-        self.assertEqual(count, 2)
-        self.assertEqual(json.loads(scenes_json)["method"], "content")
+        self.assertEqual(count, 1)
+        self.assertEqual(images.shape, (1, 16, 16, 3))
         self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
         self.assertEqual(videos, [])
 

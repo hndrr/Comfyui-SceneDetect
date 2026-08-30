@@ -19,6 +19,7 @@ from ..utils.video_ops import (
     split_scene_clips,
     timecodes_to_dict,
     unpack_method_input,
+    unpack_toggle_combo,
     video_source_path,
 )
 from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
@@ -125,13 +126,28 @@ class PySceneDetectVideo(_NODE_BASE):
 
     @classmethod
     def execute(cls, video, method, **kwargs):
+        _, extra_ui = unpack_toggle_combo(
+            kwargs.pop("show_all_settings", False), "show_all_settings"
+        )
+        split_clips, split_extra = unpack_toggle_combo(
+            kwargs.pop("split_clips", False), "split_clips"
+        )
+        kwargs.update(extra_ui)
+        kwargs.update(split_extra)
+        method, threshold, luma_only, detector_options = unpack_method_input(
+            method,
+            kwargs.pop("threshold", 27.0),
+            kwargs.pop("luma_only", True),
+        )
+        kwargs.update(detector_options)
         results = cls().run(
             video,
             method,
-            threshold=kwargs.pop("threshold", 27.0),
+            threshold=threshold,
             min_scene_len_sec=kwargs.pop("min_scene_len_sec", 0.0),
             min_scene_len_frames=kwargs.pop("min_scene_len_frames", 15),
-            luma_only=kwargs.pop("luma_only", True),
+            luma_only=luma_only,
+            split_clips=split_clips,
             **kwargs,
         )
         return io.NodeOutput(*results)
