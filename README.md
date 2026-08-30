@@ -14,6 +14,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - LLM/VLM handoff: one document of every scene (`all_scenes_text`) plus one prompt per scene (`per_scene_prompt_list`)
 - Optionally split detected scenes into `VIDEO` clips with ffmpeg
+- Preview unsaved clips with `PySceneDetect: Preview Videos` (writes nothing to the output directory)
 - Optionally store representative frames as JPEG thumbnails
 - Detector-specific widgets stay hidden until that `method` is selected (`show_all_settings` reveals every field)
 
@@ -51,6 +52,7 @@ Installing from ComfyUI Manager also installs the Python dependencies listed bel
 ## Node Name and Category
 
 - Node: `PySceneDetect: Video → Scenes` (recommended, built-in `VIDEO` input)
+- Preview node: `PySceneDetect: Preview Videos` (inspect `VIDEO` clips without saving)
 - Legacy node: `PySceneDetect: Scenes → Images (Legacy VHS)`
 - Category: `Video/PySceneDetect`
 
@@ -97,7 +99,15 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `scene_count` (`INT`): Number of detected scenes.
   - `all_scenes_text` (`STRING`): Every scene in one text block. Connect to a text LLM for a single call about the whole video.
   - `per_scene_prompt_list` (`STRING` list): One prompt per scene, in the same order as `images`. Connect to a VLM so it runs once per representative frame.
-  - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list. Files are not saved to the output directory until `Save Video` is connected.
+  - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list. Files stay in ComfyUI's temp directory. Connect to `PySceneDetect: Preview Videos` to inspect them in the graph, or to ComfyUI's `Save Video` to write them under the output directory.
+
+### `PySceneDetect: Preview Videos`
+
+ComfyUI's built-in `Save Video` is the only core node that shows a video preview, and it writes files to the output directory. Use this node when you only want to watch the unsaved clips.
+
+- Required input: `video` (`VIDEO`). `INPUT_IS_LIST` is enabled, so connect either a single `VIDEO` or the `videos` list from `PySceneDetect: Video → Scenes`.
+- No graph outputs. After execution, one clip plays at a time. Use previous/next or the scene number to inspect the rest; only the visible clip is decoded, so a large scene count stays light.
+- Files already in temp are referenced in place. Other files are copied into `temp/scenedetect_preview/` for the `/view` endpoint. Nothing is written to the output directory.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
@@ -162,7 +172,7 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
 3. Adjust `method`, `threshold`, and `min_scene_len_*` to match the video source.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
-5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`. Connect `videos` to `Save Video` if you want files in the output directory.
+5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`. Connect `videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.
 
 Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
@@ -180,7 +190,7 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 ## Project Layout
 
 - The root `__init__.py` follows the standard ComfyUI structure and registers `nodes`.
-- The built-in `VIDEO` implementation lives in `nodes/pyscenedetect_video.py`, the VHS-compatible implementation lives in `nodes/pyscenedetect_to_images.py`, and shared helpers reside in `utils/video_ops.py`.
+- The built-in `VIDEO` implementation lives in `nodes/pyscenedetect_video.py`, clip preview lives in `nodes/pyscenedetect_preview.py`, the VHS-compatible implementation lives in `nodes/pyscenedetect_to_images.py`, and shared helpers reside in `utils/video_ops.py`.
 
 ## Troubleshooting
 
