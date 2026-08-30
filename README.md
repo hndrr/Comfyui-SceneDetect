@@ -2,22 +2,23 @@
 
 ![workflow](assets/2025-10-25-235141.png)
 
-Comfyui-SceneDetect is a ComfyUI custom node that uses PySceneDetect to locate scene boundaries in a video and emit one representative frame per scene as an `IMAGE` batch. It also returns per-scene metadata as JSON (`STRING`) and the total number of detected scenes (`INT`).
+Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, and the detected scene count.
 
 ## Features
 
-- Automatic scene segmentation from video files (powered by PySceneDetect)
-- Stream ComfyUI's built-in `VIDEO` input directly without expanding every frame into an `IMAGE` batch
+- Direct support for ComfyUI's built-in `Load Video` and `VIDEO` type
+- Low-memory processing in the recommended node without materializing the complete video as a float32 `IMAGE` batch
+- Backward-compatible Legacy VHS node for existing workflows
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
 
 ## Requirements
 
-- ComfyUI with the built-in `Load Video` node
-- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) is optional and only required by the legacy node.
+- ComfyUI with built-in `VIDEO` support for the recommended node
 - Python 3.10 or newer
-- [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect): Core scene detection engine leveraged by this custom node.
+- [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect) and OpenCV (installed through this package's dependency list)
+- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only when using the Legacy VHS node
 
 ## Installation
 
