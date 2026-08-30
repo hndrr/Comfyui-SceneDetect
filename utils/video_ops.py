@@ -3,16 +3,17 @@ from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
 import torch
-from scenedetect import SceneManager, open_video
-from scenedetect.frame_timecode import FrameTimecode
+from scenedetect import FrameTimecode, SceneManager, open_video
 from scenedetect.detectors import ContentDetector, AdaptiveDetector, ThresholdDetector
 
 
-def choose_detector(method: str, threshold: float, min_scene_len: int, luma_only: bool):
+def choose_detector(
+    method: str, threshold: float, min_scene_len: int | float, luma_only: bool
+):
     if method == "adaptive":
         return AdaptiveDetector(min_scene_len=min_scene_len, luma_only=luma_only)
     if method == "threshold":
-        # ThresholdDetector does not support luma_only in PySceneDetect 0.6.x.
+        # ThresholdDetector does not support luma_only in PySceneDetect 0.7.x.
         return ThresholdDetector(threshold=threshold, min_scene_len=min_scene_len)
     return ContentDetector(
         threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only
@@ -25,7 +26,7 @@ def timecodes_to_dict(
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for i, (start, end) in enumerate(scene_list, start=1):
-        s, e = int(start.get_frames()), int(end.get_frames())
+        s, e = start.frame_num, end.frame_num
         d = max(0, e - s)
         rows.append(
             {
@@ -36,7 +37,7 @@ def timecodes_to_dict(
                 "fps": fps,
                 "start_time": start.get_timecode(),
                 "end_time": end.get_timecode(),
-                "duration_sec": (d / fps) if fps > 0 else None,
+                "duration_sec": max(0.0, end.seconds - start.seconds),
             }
         )
     return rows
@@ -84,8 +85,8 @@ def detect_scenes(
     video = open_video(video_path)
     fps = float(getattr(video, "frame_rate", 0.0))
     min_scene_len = (
-        max(0, int(round(min_scene_len_sec * fps)))
-        if (min_scene_len_sec and fps > 0)
+        max(0.0, float(min_scene_len_sec))
+        if fps > 0
         else max(0, int(min_scene_len_frames))
     )
     manager = SceneManager()
