@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+import { app } from "/scripts/app.js";
+import { api } from "/scripts/api.js";
 
 const NODE_CLASSES = new Set(["PySceneDetectVideo", "PySceneDetectToImages"]);
 
@@ -47,6 +47,8 @@ const ALWAYS_VISIBLE = new Set([
   "show_all_settings",
 ]);
 
+const HIDDEN_WIDGET_TYPE = "converted-widget";
+
 function widgetByName(node, name) {
   return node.widgets?.find((widget) => widget.name === name);
 }
@@ -66,17 +68,31 @@ function setWidgetHidden(widget, hidden) {
   if (widget._psdOrigComputeSize === undefined) {
     widget._psdOrigComputeSize = widget.computeSize;
   }
+  if (
+    widget._psdOrigType === undefined &&
+    widget.type &&
+    widget.type !== HIDDEN_WIDGET_TYPE
+  ) {
+    widget._psdOrigType = widget.type;
+  }
+
   widget.hidden = hidden;
   widget.computeSize = hidden
     ? () => [0, -4]
     : widget._psdOrigComputeSize;
+  widget.type = hidden ? HIDDEN_WIDGET_TYPE : widget._psdOrigType;
 
-  const nextOptions = { ...(widget.options || {}), hidden };
-  widget.options = nextOptions;
+  if (!widget.options) {
+    widget.options = {};
+  }
+  widget.options.hidden = hidden;
+
   if (widget._state && typeof widget._state === "object") {
     widget._state.options = { ...(widget._state.options || {}), hidden };
+    if ("type" in widget._state) {
+      widget._state.type = widget.type;
+    }
   }
-  updateStoreOptions(widget, { hidden });
 
   for (const key of ["element", "inputEl"]) {
     const el = widget[key];
@@ -86,66 +102,17 @@ function setWidgetHidden(widget, hidden) {
   }
 }
 
-function getPinia() {
-  const vueApp =
-    app.vueApp ||
-    document.querySelector("#vue-app")?.__vue_app__ ||
-    document.querySelector("#app")?.__vue_app__;
-  return (
-    vueApp?.config?.globalProperties?.$pinia ||
-    vueApp?._context?.provides?.pinia ||
-    null
-  );
-}
-
-function getWidgetValueStore() {
-  const pinia = getPinia();
-  if (!pinia) {
-    return null;
-  }
-  if (typeof pinia._s?.get === "function" && pinia._s.has("widgetValue")) {
-    return pinia._s.get("widgetValue");
-  }
-  if (pinia._s) {
-    for (const store of pinia._s.values()) {
-      if (
-        typeof store?.updateOptions === "function" &&
-        typeof store?.getWidget === "function"
-      ) {
-        return store;
-      }
-    }
-  }
-  return null;
-}
-
-function updateStoreOptions(widget, patch) {
-  const widgetId = widget.widgetId;
-  if (typeof widgetId !== "string" || !widgetId) {
-    return;
-  }
-  const store = getWidgetValueStore();
-  if (!store) {
-    return;
-  }
-  if (typeof store.updateOptions === "function") {
-    store.updateOptions(widgetId, patch);
-    return;
-  }
-  const state = store.getWidget?.(widgetId);
-  if (state) {
-    state.options = { ...(state.options || {}), ...patch };
-  }
-}
-
 function refreshVisibility(node) {
+  if (!node?.widgets) {
+    return;
+  }
   const showAll = isTruthy(widgetValue(node, "show_all_settings"));
   const method = widgetValue(node, "method") || "content";
   const visibleForMethod = new Set(METHOD_WIDGETS[method] || []);
   const writeThumbs = isTruthy(widgetValue(node, "write_thumbs"));
   const splitClips = isTruthy(widgetValue(node, "split_clips"));
 
-  for (const widget of node.widgets || []) {
+  for (const widget of node.widgets) {
     if (ALWAYS_VISIBLE.has(widget.name)) {
       setWidgetHidden(widget, false);
       continue;
@@ -160,20 +127,20 @@ function refreshVisibility(node) {
     }
     if (METHOD_WIDGET_NAMES.has(widget.name)) {
       setWidgetHidden(widget, !(showAll || visibleForMethod.has(widget.name)));
-      continue;
     }
   }
 
-  const size = node.computeSize();
-  node.setSize([node.size[0], size[1]]);
+  const size = node.computeSize?.();
+  if (size) {
+    node.setSize([node.size[0], size[1]]);
+  }
   node.setDirtyCanvas?.(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
   app.canvas?.setDirty?.(true, true);
 }
 
-function visibilityKey(node) {
+function visibilitySnapshot(node) {
   return [
-    node.widgets?.length || 0,
     widgetValue(node, "method") || "content",
     isTruthy(widgetValue(node, "show_all_settings")) ? "1" : "0",
     isTruthy(widgetValue(node, "write_thumbs")) ? "1" : "0",
@@ -181,47 +148,44 @@ function visibilityKey(node) {
   ].join("|");
 }
 
-function syncVisibility(node) {
-  const key = visibilityKey(node);
-  if (node._psdVisibilityKey === key) {
+function wrapWidgetCallback(node, widget) {
+  if (!widget) {
     return;
   }
-  node._psdVisibilityKey = key;
-  refreshVisibility(node);
-}
 
-function hookWidget(node, name) {
-  const widget = widgetByName(node, name);
-  if (!widget || widget._psdVisibilityHooked) {
+  if (!widget._psdInnerCallbackRef) {
+    widget._psdInnerCallbackRef = { current: widget.callback };
+    const wrapped = function () {
+      if (widget._psdVisibilityRunning) {
+        return;
+      }
+      widget._psdVisibilityRunning = true;
+      try {
+        const inner = widget._psdInnerCallbackRef.current;
+        const result =
+          inner && inner !== wrapped ? inner.apply(this, arguments) : undefined;
+        refreshVisibility(node);
+        return result;
+      } catch (error) {
+        console.error(
+          "[PySceneDetect] failed to refresh widget visibility",
+          error
+        );
+        return undefined;
+      } finally {
+        widget._psdVisibilityRunning = false;
+      }
+    };
+    widget._psdVisibilityCallback = wrapped;
+    widget.callback = wrapped;
     return;
   }
-  widget._psdVisibilityHooked = true;
-  const original = widget.callback;
-  widget.callback = function () {
-    const result = original?.apply(this, arguments);
-    node._psdVisibilityKey = undefined;
-    syncVisibility(node);
-    return result;
-  };
 
-  const proto = Object.getPrototypeOf(widget);
-  const descriptor =
-    Object.getOwnPropertyDescriptor(widget, "value") ||
-    (proto && Object.getOwnPropertyDescriptor(proto, "value"));
-  if (descriptor?.get && descriptor?.set && !widget._psdValueHooked) {
-    widget._psdValueHooked = true;
-    Object.defineProperty(widget, "value", {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return descriptor.get.call(this);
-      },
-      set(value) {
-        descriptor.set.call(this, value);
-        node._psdVisibilityKey = undefined;
-        syncVisibility(node);
-      },
-    });
+  // Vue overwrites callback after the first render. Keep our wrapper and
+  // point the inner handler at the latest function so later changes still fire.
+  if (widget.callback !== widget._psdVisibilityCallback) {
+    widget._psdInnerCallbackRef.current = widget.callback;
+    widget.callback = widget._psdVisibilityCallback;
   }
 }
 
@@ -232,8 +196,16 @@ function hookVisibilityWidgets(node) {
     "split_clips",
     "show_all_settings",
   ]) {
-    hookWidget(node, name);
+    wrapWidgetCallback(node, widgetByName(node, name));
   }
+}
+
+function bindNodeVisibility(node) {
+  if (!node || !NODE_CLASSES.has(node.comfyClass || node.type)) {
+    return;
+  }
+  hookVisibilityWidgets(node);
+  refreshVisibility(node);
 }
 
 app.registerExtension({
@@ -246,35 +218,29 @@ app.registerExtension({
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const result = onNodeCreated?.apply(this, arguments);
-      hookVisibilityWidgets(this);
-      this._psdVisibilityKey = undefined;
-      syncVisibility(this);
+      bindNodeVisibility(this);
       return result;
     };
 
     const onAdded = nodeType.prototype.onAdded;
     nodeType.prototype.onAdded = function () {
       const result = onAdded?.apply(this, arguments);
-      hookVisibilityWidgets(this);
-      this._psdVisibilityKey = undefined;
-      syncVisibility(this);
+      bindNodeVisibility(this);
       return result;
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = onConfigure?.apply(this, arguments);
-      hookVisibilityWidgets(this);
-      this._psdVisibilityKey = undefined;
-      syncVisibility(this);
+      bindNodeVisibility(this);
       return result;
     };
 
     const onWidgetChanged = nodeType.prototype.onWidgetChanged;
     nodeType.prototype.onWidgetChanged = function () {
       const result = onWidgetChanged?.apply(this, arguments);
-      this._psdVisibilityKey = undefined;
-      syncVisibility(this);
+      hookVisibilityWidgets(this);
+      refreshVisibility(this);
       return result;
     };
 
@@ -282,17 +248,19 @@ app.registerExtension({
     nodeType.prototype.onDrawForeground = function () {
       const result = onDrawForeground?.apply(this, arguments);
       hookVisibilityWidgets(this);
-      syncVisibility(this);
+      const snapshot = visibilitySnapshot(this);
+      if (this._psdVisibilitySnapshot !== snapshot) {
+        this._psdVisibilitySnapshot = snapshot;
+        refreshVisibility(this);
+      }
       return result;
     };
   },
   nodeCreated(node) {
-    if (!NODE_CLASSES.has(node.comfyClass)) {
-      return;
-    }
-    hookVisibilityWidgets(node);
-    node._psdVisibilityKey = undefined;
-    syncVisibility(node);
+    bindNodeVisibility(node);
+  },
+  loadedGraphNode(node) {
+    bindNodeVisibility(node);
   },
 });
 
