@@ -55,7 +55,7 @@ class PySceneDetectVideo(_NODE_BASE):
             "scene_count",
             "all_scenes_text",
             "per_scene_prompt_list",
-            "videos",
+            "scene_videos",
         )
         OUTPUT_IS_LIST = (False, False, False, False, True, True)
         CATEGORY = "Video/PySceneDetect"
@@ -120,7 +120,7 @@ class PySceneDetectVideo(_NODE_BASE):
                 io.Int.Output("scene_count"),
                 io.String.Output("all_scenes_text"),
                 io.String.Output("per_scene_prompt_list", is_output_list=True),
-                io.Video.Output("videos", is_output_list=True),
+                io.Video.Output("scene_videos", is_output_list=True),
             ],
         )
 
@@ -185,7 +185,7 @@ class PySceneDetectVideo(_NODE_BASE):
         settings = DetectorSettings.from_mapping(detector_options)
         output_root = folder_paths.get_output_directory()
 
-        videos = []
+        scene_videos = []
         with video_source_path(video.get_stream_source()) as video_path:
             scene_list, fps_detected = detect_scenes(
                 video_path,
@@ -224,7 +224,7 @@ class PySceneDetectVideo(_NODE_BASE):
                 )
                 for row, clip_path in zip(rows, clip_paths):
                     row["clip_path"] = clip_path
-                videos = [load_video_from_file(path) for path in clip_paths]
+                scene_videos = [load_video_from_file(path) for path in clip_paths]
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
@@ -302,7 +302,7 @@ class PySceneDetectVideo(_NODE_BASE):
             len(rows),
             all_scenes_text,
             per_scene_prompt_list,
-            videos,
+            scene_videos,
         )
 
 

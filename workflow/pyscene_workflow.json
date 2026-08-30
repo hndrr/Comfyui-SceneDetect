@@ -66,7 +66,7 @@
         {"name": "scene_count", "type": "INT", "links": [23]},
         {"name": "all_scenes_text", "type": "STRING", "links": [24]},
         {"name": "per_scene_prompt_list", "type": "STRING", "links": [25], "shape": 6},
-        {"name": "videos", "type": "VIDEO", "links": [26, 27], "shape": 6}
+        {"name": "scene_videos", "type": "VIDEO", "links": [26, 27], "shape": 6}
       ],
       "properties": {
         "aux_id": "hndrr/Comfyui-SceneDetect",
@@ -219,7 +219,7 @@
     {
       "id": 31,
       "type": "SaveVideo",
-      "title": "Save Video (videos)",
+      "title": "Save Video (scene_videos)",
       "pos": [-860, -1480],
       "size": [320, 250],
       "flags": {},

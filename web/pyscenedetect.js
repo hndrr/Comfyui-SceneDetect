@@ -110,7 +110,7 @@ function renderVideoPreviews(node, entries) {
     node._psdVideoPreviewHeight = 28;
     const empty = document.createElement("div");
     empty.textContent =
-      "No videos to preview. Enable split_clips and connect videos.";
+      "No videos to preview. Enable split_clips and connect scene_videos.";
     empty.style.opacity = "0.65";
     empty.style.padding = "6px 4px";
     empty.style.fontSize = "12px";
