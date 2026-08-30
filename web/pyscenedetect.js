@@ -70,8 +70,71 @@ function setWidgetHidden(widget, hidden) {
   widget.computeSize = hidden
     ? () => [0, -4]
     : widget._psdOrigComputeSize;
-  if (widget.element) {
-    widget.element.style.display = hidden ? "none" : "";
+
+  const nextOptions = { ...(widget.options || {}), hidden };
+  widget.options = nextOptions;
+  if (widget._state && typeof widget._state === "object") {
+    widget._state.options = { ...(widget._state.options || {}), hidden };
+  }
+  updateStoreOptions(widget, { hidden });
+
+  for (const key of ["element", "inputEl"]) {
+    const el = widget[key];
+    if (el?.style) {
+      el.style.display = hidden ? "none" : "";
+    }
+  }
+}
+
+function getPinia() {
+  const vueApp =
+    app.vueApp ||
+    document.querySelector("#vue-app")?.__vue_app__ ||
+    document.querySelector("#app")?.__vue_app__;
+  return (
+    vueApp?.config?.globalProperties?.$pinia ||
+    vueApp?._context?.provides?.pinia ||
+    null
+  );
+}
+
+function getWidgetValueStore() {
+  const pinia = getPinia();
+  if (!pinia) {
+    return null;
+  }
+  if (typeof pinia._s?.get === "function" && pinia._s.has("widgetValue")) {
+    return pinia._s.get("widgetValue");
+  }
+  if (pinia._s) {
+    for (const store of pinia._s.values()) {
+      if (
+        typeof store?.updateOptions === "function" &&
+        typeof store?.getWidget === "function"
+      ) {
+        return store;
+      }
+    }
+  }
+  return null;
+}
+
+function updateStoreOptions(widget, patch) {
+  const widgetId = widget.widgetId;
+  if (typeof widgetId !== "string" || !widgetId) {
+    return;
+  }
+  const store = getWidgetValueStore();
+  if (!store) {
+    return;
+  }
+  if (typeof store.updateOptions === "function") {
+    store.updateOptions(widgetId, patch);
+    return;
+  }
+  const state = store.getWidget?.(widgetId);
+  if (state) {
+    state.options = { ...(state.options || {}), ...patch };
   }
 }
 
@@ -103,7 +166,9 @@ function refreshVisibility(node) {
 
   const size = node.computeSize();
   node.setSize([node.size[0], size[1]]);
+  node.setDirtyCanvas?.(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
+  app.canvas?.setDirty?.(true, true);
 }
 
 function visibilityKey(node) {
@@ -138,6 +203,26 @@ function hookWidget(node, name) {
     syncVisibility(node);
     return result;
   };
+
+  const proto = Object.getPrototypeOf(widget);
+  const descriptor =
+    Object.getOwnPropertyDescriptor(widget, "value") ||
+    (proto && Object.getOwnPropertyDescriptor(proto, "value"));
+  if (descriptor?.get && descriptor?.set && !widget._psdValueHooked) {
+    widget._psdValueHooked = true;
+    Object.defineProperty(widget, "value", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return descriptor.get.call(this);
+      },
+      set(value) {
+        descriptor.set.call(this, value);
+        node._psdVisibilityKey = undefined;
+        syncVisibility(node);
+      },
+    });
+  }
 }
 
 function hookVisibilityWidgets(node) {
@@ -161,6 +246,15 @@ app.registerExtension({
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const result = onNodeCreated?.apply(this, arguments);
+      hookVisibilityWidgets(this);
+      this._psdVisibilityKey = undefined;
+      syncVisibility(this);
+      return result;
+    };
+
+    const onAdded = nodeType.prototype.onAdded;
+    nodeType.prototype.onAdded = function () {
+      const result = onAdded?.apply(this, arguments);
       hookVisibilityWidgets(this);
       this._psdVisibilityKey = undefined;
       syncVisibility(this);
@@ -191,6 +285,14 @@ app.registerExtension({
       syncVisibility(this);
       return result;
     };
+  },
+  nodeCreated(node) {
+    if (!NODE_CLASSES.has(node.comfyClass)) {
+      return;
+    }
+    hookVisibilityWidgets(node);
+    node._psdVisibilityKey = undefined;
+    syncVisibility(node);
   },
 });
 

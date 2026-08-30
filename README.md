@@ -16,7 +16,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Optionally split detected scenes into `VIDEO` clips with ffmpeg
 - Preview unsaved clips with `PySceneDetect: Preview Videos` (writes nothing to the output directory)
 - Optionally store representative frames as JPEG thumbnails
-- Detector-specific widgets stay hidden until that `method` is selected (`show_all_settings` reveals every field)
+- Detector-specific widgets stay hidden until that `method` is selected (`show_all_settings` reveals every field). Changing `method` updates the visible fields immediately.
 
 ## Requirements
 
