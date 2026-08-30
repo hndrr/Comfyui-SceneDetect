@@ -1,20 +1,78 @@
 import importlib
 import json
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
 import cv2
 import numpy as np
-from comfy_api.latest import InputImpl
+
+try:
+    from comfy_api.latest import InputImpl
+except ImportError:
+    InputImpl = None
 
 
-video_node = importlib.import_module(
-    "custom_nodes.Comfyui-SceneDetect.nodes.pyscenedetect_video"
-)
+def _load_video_node():
+    repository_root = Path(__file__).resolve().parents[1]
+    package_name = "comfyui_scenedetect_test_package"
+
+    package = types.ModuleType(package_name)
+    package.__path__ = [str(repository_root)]
+    sys.modules[package_name] = package
+
+    nodes_package_name = f"{package_name}.nodes"
+    nodes_package = types.ModuleType(nodes_package_name)
+    nodes_package.__path__ = [str(repository_root / "nodes")]
+    sys.modules[nodes_package_name] = nodes_package
+
+    return importlib.import_module(f"{nodes_package_name}.pyscenedetect_video")
 
 
+video_node = _load_video_node() if InputImpl is not None else None
+
+
+@unittest.skipIf(InputImpl is None, "ComfyUI's comfy_api is not available")
 class VideoNodeTests(unittest.TestCase):
+    def test_thumbnail_path_stays_inside_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            resolved = video_node._resolve_thumbnail_path(
+                tmpdir, "scene_thumbs/frame.jpg"
+            )
+
+        self.assertEqual(
+            resolved,
+            str(Path(tmpdir).resolve() / "scene_thumbs" / "frame.jpg"),
+        )
+
+    def test_thumbnail_path_rejects_absolute_and_traversal_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(ValueError):
+                video_node._resolve_thumbnail_path(
+                    tmpdir, str(Path(tmpdir).parent / "outside")
+                )
+            with self.assertRaises(ValueError):
+                video_node._resolve_thumbnail_path(tmpdir, "../outside")
+            with self.assertRaises(ValueError):
+                video_node._resolve_thumbnail_path(tmpdir, r"..\outside")
+            with self.assertRaises(ValueError):
+                video_node._resolve_thumbnail_path(tmpdir, r"C:\outside")
+
+    def test_thumbnail_path_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir) / "output"
+            outside = Path(tmpdir) / "outside"
+            output_root.mkdir()
+            outside.mkdir()
+            (output_root / "linked").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(ValueError):
+                video_node._resolve_thumbnail_path(
+                    str(output_root), "linked/frame.jpg"
+                )
+
     def test_official_video_input_finds_scenes_and_frames(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"

@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict
-import json, os, cv2, torch
+import json, ntpath, os, cv2, torch
 import numpy as np
+import folder_paths
 
 from ..utils.video_ops import (
     detect_scenes,
@@ -12,6 +13,20 @@ from ..utils.video_ops import (
     timecodes_to_dict,
     video_source_path,
 )
+
+
+def _resolve_thumbnail_path(output_root: str, relative_path: str) -> str:
+    if not relative_path or os.path.isabs(relative_path) or ntpath.isabs(relative_path):
+        raise ValueError(
+            "Thumbnail path must be relative to ComfyUI's output directory."
+        )
+    if ".." in relative_path.replace("\\", "/").split("/"):
+        raise ValueError("Thumbnail path must not contain '..'.")
+
+    path = os.path.realpath(os.path.abspath(os.path.join(output_root, relative_path)))
+    if not folder_paths.is_within_directory(output_root, path):
+        raise ValueError("Thumbnail path must stay inside ComfyUI's output directory.")
+    return path
 
 
 class PySceneDetectVideo:
@@ -41,7 +56,7 @@ class PySceneDetectVideo:
                 "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "write_thumbs": ("BOOLEAN", {"default": False}),
-                "thumbs_dir": ("STRING", {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"}),
+                "thumbs_dir": ("STRING", {"default": "", "placeholder": "Relative to ComfyUI output; default: scene_thumbs"}),
             },
         }
 
@@ -96,10 +111,11 @@ class PySceneDetectVideo:
             frames = read_video_frames(video_path, frame_indices)
 
         image_tensors = []
+        thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
+        output_root = folder_paths.get_output_directory()
         if write_thumbs:
-            if not thumbs_dir:
-                thumbs_dir = os.path.join(os.getcwd(), "scene_thumbs")
-            os.makedirs(thumbs_dir, exist_ok=True)
+            thumbnail_dir = _resolve_thumbnail_path(output_root, thumbnail_subdir)
+            os.makedirs(thumbnail_dir, exist_ok=True)
 
         for row, frame_index in zip(rows, frame_indices):
             frame = frames.get(frame_index)
@@ -119,7 +135,10 @@ class PySceneDetectVideo:
 
             if write_thumbs:
                 out_name = f"scene_{row['index']:03d}_f{frame_index}.jpg"
-                cv2.imwrite(os.path.join(thumbs_dir, out_name), frame)
+                out_path = _resolve_thumbnail_path(
+                    output_root, os.path.join(thumbnail_subdir, out_name)
+                )
+                cv2.imwrite(out_path, frame)
 
         if not image_tensors:
             black = np.zeros((1, 1, 3), dtype=np.uint8)

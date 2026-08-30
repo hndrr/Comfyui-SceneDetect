@@ -209,9 +209,10 @@ def detect_scenes_from_video(
     duration: float = 0.0,
 ):
     fps = float(getattr(video, "frame_rate", 0.0))
+    min_scene_len_seconds = max(0.0, float(min_scene_len_sec))
     min_scene_len = (
-        max(0.0, float(min_scene_len_sec))
-        if fps > 0
+        min_scene_len_seconds
+        if min_scene_len_seconds > 0
         else max(0, int(min_scene_len_frames))
     )
     manager = SceneManager()

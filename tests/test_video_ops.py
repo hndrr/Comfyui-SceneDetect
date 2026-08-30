@@ -80,6 +80,27 @@ class VideoOpsTests(unittest.TestCase):
 
         choose.assert_called_once_with("content", 27.0, 1.25, False)
 
+    def test_detect_scenes_uses_frames_when_seconds_are_zero(self):
+        video = Mock(frame_rate=Fraction(24, 1))
+        manager = Mock()
+        manager.get_scene_list.return_value = []
+        detector = object()
+
+        with (
+            patch("utils.video_ops.SceneManager", return_value=manager),
+            patch("utils.video_ops.choose_detector", return_value=detector) as choose,
+        ):
+            detect_scenes_from_video(
+                video,
+                method="content",
+                threshold=27.0,
+                min_scene_len_sec=0.0,
+                min_scene_len_frames=15,
+                luma_only=False,
+            )
+
+        choose.assert_called_once_with("content", 27.0, 15, False)
+
     def test_detect_scenes_finds_hard_cut(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
