@@ -144,7 +144,7 @@ class VideoNodeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
-            images, scenes_json, count, scenes_text, scene_prompts, videos = (
+            images, scenes_json, count, all_scenes_text, per_scene_prompt, videos = (
                 video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
                     method="content",
@@ -163,8 +163,8 @@ class VideoNodeTests(unittest.TestCase):
             [(scene["start_frame"], scene["end_frame"]) for scene in scenes],
             [(0, 20), (20, 40)],
         )
-        self.assertIn("# Scenes (2)", scenes_text)
-        self.assertEqual(scene_prompts, ["Scene 1/2", "Scene 2/2"])
+        self.assertIn("# Scenes (2)", all_scenes_text)
+        self.assertEqual(per_scene_prompt, ["Scene 1/2", "Scene 2/2"])
         self.assertEqual(videos, [])
 
     @unittest.skipUnless(is_ffmpeg_available(), "ffmpeg is required to split clips")
@@ -182,8 +182,8 @@ class VideoNodeTests(unittest.TestCase):
                     _images,
                     scenes_json,
                     count,
-                    _scenes_text,
-                    _scene_prompts,
+                    _all_scenes_text,
+                    _per_scene_prompt,
                     videos,
                 ) = video_node.PySceneDetectVideo().run(
                     FakeVideo(video_path),
