@@ -372,6 +372,50 @@ class VideoOpsTests(unittest.TestCase):
             },
         )
 
+    def test_unpack_method_input_unwraps_show_all_settings_false(self):
+        method, threshold, luma_only, extra = unpack_method_input(
+            {
+                "show_all_settings": "false",
+                "method": {
+                    "method": "hash",
+                    "hash_threshold": 0.3,
+                    "hash_size": 8,
+                },
+            }
+        )
+
+        self.assertEqual(method, "hash")
+        self.assertEqual(threshold, 27.0)
+        self.assertTrue(luma_only)
+        self.assertEqual(extra, {"hash_threshold": 0.3, "hash_size": 8})
+
+    def test_unpack_method_input_unwraps_show_all_settings_true(self):
+        method, threshold, luma_only, extra = unpack_method_input(
+            {
+                "show_all_settings": "true",
+                "method": "adaptive",
+                "adaptive_threshold": 4.0,
+                "luma_only": False,
+                "threshold": 27.0,
+            }
+        )
+
+        self.assertEqual(method, "adaptive")
+        self.assertEqual(threshold, 27.0)
+        self.assertFalse(luma_only)
+        self.assertEqual(extra, {"adaptive_threshold": 4.0})
+
+    def test_unpack_method_input_drops_v1_show_all_settings_flag(self):
+        method, threshold, luma_only, extra = unpack_method_input(
+            "content",
+            extra={"show_all_settings": False, "delta_hue": 2.0},
+        )
+
+        self.assertEqual(method, "content")
+        self.assertEqual(threshold, 27.0)
+        self.assertTrue(luma_only)
+        self.assertEqual(extra, {"delta_hue": 2.0})
+
 
 if __name__ == "__main__":
     unittest.main()

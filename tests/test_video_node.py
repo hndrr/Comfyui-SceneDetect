@@ -168,10 +168,9 @@ class VideoNodeTests(unittest.TestCase):
         self.assertEqual(per_scene_prompt_list, ["Scene 1/2", "Scene 2/2"])
         self.assertEqual(videos, [])
 
-    def test_v1_input_types_omit_show_all_settings(self):
+    def test_v1_input_types_include_show_all_settings(self):
         types = video_node.PySceneDetectVideo.INPUT_TYPES()
-        self.assertNotIn("show_all_settings", types["required"])
-        self.assertNotIn("show_all_settings", types["optional"])
+        self.assertEqual(types["optional"]["show_all_settings"][0], "BOOLEAN")
         self.assertEqual(
             types["required"]["method"][0],
             ["content", "adaptive", "threshold", "hash", "histogram"],
@@ -203,6 +202,32 @@ class VideoNodeTests(unittest.TestCase):
             [(scene["start_frame"], scene["end_frame"]) for scene in scenes],
             [(0, 20), (20, 40)],
         )
+        self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
+        self.assertEqual(videos, [])
+
+    def test_run_accepts_show_all_settings_wrapper(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "hard-cut.avi"
+            _write_hard_cut(video_path)
+            _images, scenes_json, count, _, _, videos = (
+                video_node.PySceneDetectVideo().run(
+                    FakeVideo(video_path),
+                    method={
+                        "show_all_settings": "true",
+                        "method": "content",
+                        "threshold": 10.0,
+                        "luma_only": False,
+                        "hash_threshold": 0.395,
+                    },
+                    threshold=999.0,
+                    min_scene_len_sec=0.0,
+                    min_scene_len_frames=1,
+                    luma_only=True,
+                )
+            )
+
+        self.assertEqual(count, 2)
+        self.assertEqual(json.loads(scenes_json)["method"], "content")
         self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
         self.assertEqual(videos, [])
 
