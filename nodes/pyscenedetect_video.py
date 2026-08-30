@@ -17,6 +17,7 @@ from ..utils.video_ops import (
     resize_keep_ar,
     sanitize_clip_name,
     split_scene_clips,
+    stamp_scene_duration,
     timecodes_to_dict,
     unpack_method_input,
     unpack_toggle_combo,
@@ -224,7 +225,12 @@ class PySceneDetectVideo(_NODE_BASE):
                 )
                 for row, clip_path in zip(rows, clip_paths):
                     row["clip_path"] = clip_path
-                scene_videos = [load_video_from_file(path) for path in clip_paths]
+                scene_videos = [
+                    stamp_scene_duration(
+                        load_video_from_file(path), row["duration_sec"]
+                    )
+                    for row, path in zip(rows, clip_paths)
+                ]
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"

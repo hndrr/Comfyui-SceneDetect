@@ -29,7 +29,7 @@ def _file_path_from_video(video: Any) -> str | None:
     return None
 
 
-def preview_entry_for_path(path: str) -> Dict[str, str]:
+def preview_entry_for_path(path: str) -> Dict[str, Any]:
     path = os.path.realpath(path)
     if not os.path.isfile(path):
         raise ValueError(f"Video file was not found: {path}")
@@ -55,20 +55,32 @@ def preview_entry_for_path(path: str) -> Dict[str, str]:
     }
 
 
-def preview_entry_for_video(video: Any) -> Dict[str, str]:
+def _scene_duration_sec(video: Any) -> float | None:
+    value = getattr(video, "scene_duration_sec", None)
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value)
+    return None
+
+
+def preview_entry_for_video(video: Any) -> Dict[str, Any]:
     path = _file_path_from_video(video)
     if path is not None:
-        return preview_entry_for_path(path)
+        entry = preview_entry_for_path(path)
+    else:
+        save_to = getattr(video, "save_to", None)
+        if not callable(save_to):
+            raise ValueError("Preview Videos requires a file-backed VIDEO input.")
 
-    save_to = getattr(video, "save_to", None)
-    if not callable(save_to):
-        raise ValueError("Preview Videos requires a file-backed VIDEO input.")
+        dest_dir = os.path.join(folder_paths.get_temp_directory(), "scenedetect_preview")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, f"{uuid.uuid4().hex}.mp4")
+        save_to(dest_path)
+        entry = preview_entry_for_path(dest_path)
 
-    dest_dir = os.path.join(folder_paths.get_temp_directory(), "scenedetect_preview")
-    os.makedirs(dest_dir, exist_ok=True)
-    dest_path = os.path.join(dest_dir, f"{uuid.uuid4().hex}.mp4")
-    save_to(dest_path)
-    return preview_entry_for_path(dest_path)
+    duration = _scene_duration_sec(video)
+    if duration is not None:
+        entry["duration_sec"] = duration
+    return entry
 
 
 class PySceneDetectPreviewVideos:
