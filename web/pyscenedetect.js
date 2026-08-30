@@ -87,7 +87,7 @@ function refreshVisibility(node) {
       setWidgetHidden(widget, !(showAll || writeThumbs));
       continue;
     }
-    if (widget.name === "split_dir" || widget.name === "split_reencode") {
+    if (widget.name === "split_reencode") {
       setWidgetHidden(widget, !(showAll || splitClips));
       continue;
     }

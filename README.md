@@ -86,8 +86,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `limit_scenes` (`INT`): Limit the number of scenes processed from the start (0 disables the limit).
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
   - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
-  - `split_clips` (`BOOLEAN`): Split each detected scene into a video clip with ffmpeg.
-  - `split_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, clips are written to `output/scene_clips`.
+  - `split_clips` (`BOOLEAN`): Split each detected scene into a `VIDEO` clip. Clips are kept only as graph outputs; connect `videos` to ComfyUI's `Save Video` to write them under the output directory.
   - `split_reencode` (`BOOLEAN`): When false, copy streams (`-c copy`). When true, re-encode with libx264.
   - `prompt_template` (`STRING`): Per-scene prompt template for VLM nodes. Empty uses `Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot.`
   - Detector extras (ignored when the selected method does not use them): `adaptive_threshold`, `window_width`, `min_content_val`, `delta_hue`, `delta_sat`, `delta_lum`, `delta_edges`, `kernel_size`, `hash_threshold`, `hash_size`, `hash_lowpass`, `hist_threshold`, `hist_bins`, `fade_bias`, `add_final_scene`, `threshold_method`, `start_in_scene`, `downscale`.
@@ -98,7 +97,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `scene_count` (`INT`): Number of detected scenes.
   - `all_scenes_text` (`STRING`): Every scene in one text block. Connect to a text LLM for a single call about the whole video.
   - `per_scene_prompt_list` (`STRING` list): One prompt per scene, in the same order as `images`. Connect to a VLM so it runs once per representative frame.
-  - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list.
+  - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list. Files are not saved to the output directory until `Save Video` is connected.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
@@ -139,7 +138,7 @@ The legacy node keeps its original node ID and the original first three outputs 
 }
 ```
 
-Each entry in the `scenes` array provides the start/end frame indices, SMPTE-style timestamps, and the duration of the scene. When `split_clips` is enabled, each scene also includes `clip_path`.
+Each entry in the `scenes` array provides the start/end frame indices, SMPTE-style timestamps, and the duration of the scene. When `split_clips` is enabled, each scene also includes a temporary `clip_path` used to build the `videos` output.
 
 ## Passing scenes to an LLM or VLM
 
@@ -163,7 +162,7 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
 3. Adjust `method`, `threshold`, and `min_scene_len_*` to match the video source.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
-5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`.
+5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `videos`. Connect `videos` to `Save Video` if you want files in the output directory.
 
 Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
