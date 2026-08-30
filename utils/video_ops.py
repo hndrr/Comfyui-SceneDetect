@@ -496,7 +496,7 @@ def split_scene_clips(
     scene_list: List[Tuple[FrameTimecode, FrameTimecode]],
     output_dir: str,
     video_name: str = "scene",
-    reencode: bool = False,
+    reencode: bool = True,
 ) -> List[str]:
     if not scene_list:
         return []

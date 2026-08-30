@@ -36,7 +36,7 @@ COMMON_WIDGETS = [
 
 SPLIT_CLIPS_ON = [
     ("split_clips", "true"),
-    ("split_clips.split_reencode", False),
+    ("split_clips.split_reencode", True),
 ]
 
 SHOW_ALL_OFF = [
