@@ -177,4 +177,4 @@ class PySceneDetectToImages:
 
 
 NODE_CLASS_MAPPINGS["PySceneDetectToImages"] = PySceneDetectToImages
-NODE_DISPLAY_NAME_MAPPINGS["PySceneDetectToImages"] = "PySceneDetect: Scenes → Images"
+NODE_DISPLAY_NAME_MAPPINGS["PySceneDetectToImages"] = "PySceneDetect: Scenes → Images (Legacy VHS)"
