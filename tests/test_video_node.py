@@ -1,21 +1,40 @@
 import importlib
 import json
+import os
 import sys
 import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
+from scenedetect import is_ffmpeg_available
 
-try:
-    from comfy_api.latest import InputImpl
-except ImportError:
-    InputImpl = None
+
+def _install_folder_paths_stub():
+    if "folder_paths" in sys.modules:
+        return sys.modules["folder_paths"]
+
+    module = types.ModuleType("folder_paths")
+
+    def is_within_directory(root: str, path: str) -> bool:
+        root = os.path.realpath(root)
+        path = os.path.realpath(path)
+        try:
+            return os.path.commonpath([root, path]) == root
+        except ValueError:
+            return False
+
+    module.get_output_directory = lambda: os.getcwd()
+    module.is_within_directory = is_within_directory
+    sys.modules["folder_paths"] = module
+    return module
 
 
 def _load_video_node():
+    _install_folder_paths_stub()
     repository_root = Path(__file__).resolve().parents[1]
     package_name = "comfyui_scenedetect_test_package"
 
@@ -31,10 +50,58 @@ def _load_video_node():
     return importlib.import_module(f"{nodes_package_name}.pyscenedetect_video")
 
 
-video_node = _load_video_node() if InputImpl is not None else None
+class FakeVideo:
+    def __init__(self, path: Path):
+        self._path = str(path)
+        capture = cv2.VideoCapture(self._path)
+        try:
+            self._fps = float(capture.get(cv2.CAP_PROP_FPS) or 10.0)
+            self._count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            self._width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            self._height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        finally:
+            capture.release()
+
+    def get_frame_rate(self) -> float:
+        return self._fps
+
+    def get_dimensions(self):
+        return self._width, self._height
+
+    def get_frame_count(self) -> int:
+        return self._count
+
+    def get_duration(self) -> float:
+        return self._count / self._fps if self._fps else 0.0
+
+    def get_active_trim_window(self):
+        return 0.0, 0.0
+
+    def get_stream_source(self) -> str:
+        return self._path
 
 
-@unittest.skipIf(InputImpl is None, "ComfyUI's comfy_api is not available")
+def _write_hard_cut(path: Path) -> None:
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        10.0,
+        (32, 32),
+    )
+    if not writer.isOpened():
+        raise RuntimeError(f"Failed to open VideoWriter for {path}")
+    try:
+        for value in (0, 255):
+            frame = np.full((32, 32, 3), value, dtype=np.uint8)
+            for _ in range(20):
+                writer.write(frame)
+    finally:
+        writer.release()
+
+
+video_node = _load_video_node()
+
+
 class VideoNodeTests(unittest.TestCase):
     def test_thumbnail_path_stays_inside_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -73,31 +140,20 @@ class VideoNodeTests(unittest.TestCase):
                     str(output_root), "linked/frame.jpg"
                 )
 
-    def test_official_video_input_finds_scenes_and_frames(self):
+    def test_official_video_input_finds_scenes_and_llm_text(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
-            writer = cv2.VideoWriter(
-                str(video_path),
-                cv2.VideoWriter_fourcc(*"MJPG"),
-                10.0,
-                (32, 32),
-            )
-            self.assertTrue(writer.isOpened())
-            try:
-                for value in (0, 255):
-                    frame = np.full((32, 32, 3), value, dtype=np.uint8)
-                    for _ in range(20):
-                        writer.write(frame)
-            finally:
-                writer.release()
-
-            images, scenes_json, count = video_node.PySceneDetectVideo().run(
-                InputImpl.VideoFromFile(str(video_path)),
-                method="content",
-                threshold=10.0,
-                min_scene_len_sec=0.0,
-                min_scene_len_frames=1,
-                luma_only=False,
+            _write_hard_cut(video_path)
+            images, scenes_json, count, scenes_text, scene_prompts, videos = (
+                video_node.PySceneDetectVideo().run(
+                    FakeVideo(video_path),
+                    method="content",
+                    threshold=10.0,
+                    min_scene_len_sec=0.0,
+                    min_scene_len_frames=1,
+                    luma_only=False,
+                    prompt_template="Scene {index}/{scene_count}",
+                )
             )
 
         scenes = json.loads(scenes_json)["scenes"]
@@ -107,6 +163,48 @@ class VideoNodeTests(unittest.TestCase):
             [(scene["start_frame"], scene["end_frame"]) for scene in scenes],
             [(0, 20), (20, 40)],
         )
+        self.assertIn("# Scenes (2)", scenes_text)
+        self.assertEqual(scene_prompts, ["Scene 1/2", "Scene 2/2"])
+        self.assertEqual(videos, [])
+
+    @unittest.skipUnless(is_ffmpeg_available(), "ffmpeg is required to split clips")
+    def test_split_clips_writes_videos_under_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir) / "output"
+            output_root.mkdir()
+            video_path = Path(tmpdir) / "hard-cut.avi"
+            _write_hard_cut(video_path)
+            folder_paths = sys.modules["folder_paths"]
+            folder_paths.get_output_directory = lambda: str(output_root)
+
+            with patch.object(video_node, "load_video_from_file", side_effect=lambda path: path):
+                (
+                    _images,
+                    scenes_json,
+                    count,
+                    _scenes_text,
+                    _scene_prompts,
+                    videos,
+                ) = video_node.PySceneDetectVideo().run(
+                    FakeVideo(video_path),
+                    method="content",
+                    threshold=10.0,
+                    min_scene_len_sec=0.0,
+                    min_scene_len_frames=1,
+                    luma_only=False,
+                    split_clips=True,
+                    split_reencode=True,
+                )
+
+            scenes = json.loads(scenes_json)["scenes"]
+            self.assertEqual(count, 2)
+            self.assertEqual(len(videos), 2)
+            for scene, clip in zip(scenes, videos):
+                self.assertTrue(Path(clip).is_file())
+                self.assertEqual(scene["clip_path"], clip)
+                self.assertTrue(
+                    Path(clip).resolve().is_relative_to(output_root.resolve())
+                )
 
 
 if __name__ == "__main__":

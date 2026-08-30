@@ -2,15 +2,18 @@
 
 ![workflow](assets/2025-10-25-235141.png)
 
-Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, and the detected scene count.
+Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, LLM-ready text, and the detected scene count. The recommended node can also split each scene into a `VIDEO` clip.
 
 ## Features
 
 - Direct support for ComfyUI's built-in `Load Video` and `VIDEO` type
 - Low-memory processing in the recommended node without materializing the complete video as a float32 `IMAGE` batch
 - Backward-compatible Legacy VHS node for existing workflows
+- Detection methods from PySceneDetect 0.7: `content`, `adaptive`, `threshold`, `hash`, and `histogram`
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
+- LLM/VLM handoff: a readable scene list (`scenes_text`) plus per-scene prompts (`scene_prompts`)
+- Optionally split detected scenes into `VIDEO` clips with ffmpeg
 - Optionally store representative frames as JPEG thumbnails
 
 ## Requirements
@@ -18,6 +21,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - ComfyUI with built-in `VIDEO` support for the recommended node
 - Python 3.10 or newer
 - [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect) and OpenCV (installed through this package's dependency list)
+- ffmpeg on `PATH` only when using scene clip splitting (`split_clips`)
 - [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only when using the Legacy VHS node
 
 ## Installation
@@ -67,11 +71,11 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 
 - Required inputs
   - `video` (`VIDEO`): Connect the output from ComfyUI's built-in `Load Video` node. The video is streamed from the compressed source instead of being expanded into a full frame batch.
-  - `method` (`content|adaptive|threshold`): Scene detection method.
-  - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
+  - `method` (`content|adaptive|threshold|hash|histogram`): Scene detection method.
+  - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods. `hash` and `histogram` use their own optional thresholds so the default `27.0` is not applied to the 0–1 range.
   - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Values greater than zero override `min_scene_len_frames`.
   - `min_scene_len_frames` (`INT`): Minimum scene length in frames, used when `min_scene_len_sec` is `0`.
-  - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold uses color in PySceneDetect 0.7).
+  - `luma_only` (`BOOLEAN`): Use luma-only detection (content/adaptive only; threshold/hash/histogram ignore this flag).
 
 - Optional inputs
   - `representative` (`start|middle|end`): Position of the representative frame.
@@ -80,15 +84,23 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `limit_scenes` (`INT`): Limit the number of scenes processed from the start (0 disables the limit).
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
   - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
+  - `split_clips` (`BOOLEAN`): Split each detected scene into a video clip with ffmpeg.
+  - `split_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, clips are written to `output/scene_clips`.
+  - `split_reencode` (`BOOLEAN`): When false, copy streams (`-c copy`). When true, re-encode with libx264.
+  - `prompt_template` (`STRING`): Per-scene prompt template for VLM nodes. Empty uses `Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot.`
+  - Detector extras (ignored when the selected method does not use them): `adaptive_threshold`, `window_width`, `min_content_val`, `delta_hue`, `delta_sat`, `delta_lum`, `delta_edges`, `kernel_size`, `hash_threshold`, `hash_size`, `hash_lowpass`, `hist_threshold`, `hist_bins`, `fade_bias`, `add_final_scene`, `threshold_method`, `start_in_scene`, `downscale`.
 
 - Outputs
-  - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
+  - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`). Connect to a VLM node.
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
+  - `scenes_text` (`STRING`): Human/LLM-readable scene list. Connect to a text LLM.
+  - `scene_prompts` (`STRING` list): One prompt per scene, in the same order as `images`. Connect to a VLM prompt input.
+  - `videos` (`VIDEO` list): Scene clips when `split_clips` is enabled; otherwise an empty list.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
-The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
+The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `scenes_text`, and `scene_prompts`. It does not split `VIDEO` clips.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -125,15 +137,31 @@ The legacy node keeps its original node ID, inputs, and outputs so existing work
 }
 ```
 
-Each entry in the `scenes` array provides the start/end frame indices, SMPTE-style timestamps, and the duration of the scene.
+Each entry in the `scenes` array provides the start/end frame indices, SMPTE-style timestamps, and the duration of the scene. When `split_clips` is enabled, each scene also includes `clip_path`.
+
+## Passing scenes to an LLM or VLM
+
+This package does not call an LLM API. Connect the outputs to existing ComfyUI text or vision nodes (JoyCaption, OpenAI-compatible nodes, Ollama, and similar).
+
+- Text LLM: connect `scenes_text` to a `STRING` prompt input. The value is a readable scene list, for example:
+
+```
+# Scenes (2)
+1. 00:00:00.000 – 00:00:02.000 | 2.000s | frames 0-20
+2. 00:00:02.000 – 00:00:04.000 | 2.000s | frames 20-40
+```
+
+- VLM: connect `images` to the image input and `scene_prompts` to the prompt input. `prompt_template` placeholders are `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, `{duration_frames}`, and `{clip_path}`.
+
+MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scenes_json` timestamps if you need to align those tools yourself.
 
 ## Usage in ComfyUI
 
 1. Load a video with ComfyUI's built-in `Load Video` node.
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
 3. Adjust `method`, `threshold`, and `min_scene_len_*` to match the video source.
-4. Configure the representative frame position, optional resizing, and thumbnail export settings.
-5. Execute the graph to receive representative frames on `images` and scene metadata on `scenes_json`.
+4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
+5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `scenes_text`, and optional clips on `videos`.
 
 Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
@@ -158,6 +186,7 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 - High memory use with VHS: Prefer the built-in `Load Video` and `PySceneDetect: Video → Scenes`. The legacy VHS path must keep its full `IMAGE` batch in memory.
 - Latent batches in legacy workflows: If a VAE is connected to the VHS `Load Video`, its LATENT output is unsupported. Output RGB frames instead.
 - OpenCV fails to open the video: Check codecs and file paths. Confirm that `opencv-python-headless` is installed.
+- Clip splitting fails: Confirm `ffmpeg` is on `PATH`. Stream copy (`split_reencode` off) can miss keyframes; enable re-encode for frame-accurate cuts.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
 

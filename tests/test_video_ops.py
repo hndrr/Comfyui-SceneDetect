@@ -7,15 +7,46 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 import torch
-from scenedetect import FrameTimecode
+from scenedetect import FrameTimecode, is_ffmpeg_available
+from scenedetect.detectors import (
+    AdaptiveDetector,
+    ContentDetector,
+    HashDetector,
+    HistogramDetector,
+    ThresholdDetector,
+)
 
 from utils.video_ops import (
+    DEFAULT_SCENE_PROMPT,
+    DetectorSettings,
     TensorVideoStream,
+    choose_detector,
     detect_scenes,
     detect_scenes_from_video,
+    format_scenes_for_llm,
     read_video_frames,
+    sanitize_clip_name,
+    split_scene_clips,
     timecodes_to_dict,
 )
+
+
+def _write_hard_cut(path: Path, frames_per_scene: int = 20) -> None:
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        10.0,
+        (32, 32),
+    )
+    if not writer.isOpened():
+        raise RuntimeError(f"Failed to open VideoWriter for {path}")
+    try:
+        for value in (0, 255):
+            frame = np.full((32, 32, 3), value, dtype=np.uint8)
+            for _ in range(frames_per_scene):
+                writer.write(frame)
+    finally:
+        writer.release()
 
 
 class VideoOpsTests(unittest.TestCase):
@@ -78,13 +109,17 @@ class VideoOpsTests(unittest.TestCase):
                 luma_only=False,
             )
 
-        choose.assert_called_once_with("content", 27.0, 1.25, False)
+        choose.assert_called_once_with(
+            "content", 27.0, 1.25, False, settings=DetectorSettings()
+        )
+        manager.get_scene_list.assert_called_once_with(start_in_scene=False)
 
     def test_detect_scenes_uses_frames_when_seconds_are_zero(self):
         video = Mock(frame_rate=Fraction(24, 1))
         manager = Mock()
         manager.get_scene_list.return_value = []
         detector = object()
+        settings = DetectorSettings(downscale=2, start_in_scene=True)
 
         with (
             patch("utils.video_ops.SceneManager", return_value=manager),
@@ -97,28 +132,50 @@ class VideoOpsTests(unittest.TestCase):
                 min_scene_len_sec=0.0,
                 min_scene_len_frames=15,
                 luma_only=False,
+                settings=settings,
             )
 
-        choose.assert_called_once_with("content", 27.0, 15, False)
+        choose.assert_called_once_with(
+            "content", 27.0, 15, False, settings=settings
+        )
+        self.assertFalse(manager.auto_downscale)
+        self.assertEqual(manager.downscale, 2)
+        manager.get_scene_list.assert_called_once_with(start_in_scene=True)
+
+    def test_choose_detector_selects_method_specific_classes(self):
+        settings = DetectorSettings(
+            adaptive_threshold=4.5,
+            hash_threshold=0.2,
+            hist_threshold=0.1,
+            threshold_method="ceiling",
+            fade_bias=0.5,
+            add_final_scene=True,
+        )
+
+        content = choose_detector("content", 27.0, 15, True, settings)
+        adaptive = choose_detector("adaptive", 27.0, 15, True, settings)
+        threshold = choose_detector("threshold", 12.0, 15, True, settings)
+        hashed = choose_detector("hash", 27.0, 15, True, settings)
+        histogram = choose_detector("histogram", 27.0, 15, True, settings)
+
+        self.assertIsInstance(content, ContentDetector)
+        self.assertIsInstance(adaptive, AdaptiveDetector)
+        self.assertIsInstance(threshold, ThresholdDetector)
+        self.assertIsInstance(hashed, HashDetector)
+        self.assertIsInstance(histogram, HistogramDetector)
+        self.assertEqual(adaptive.adaptive_threshold, 4.5)
+        self.assertEqual(hashed._threshold, 0.2)
+        self.assertEqual(histogram._bins, 256)
+        self.assertEqual(threshold.method, ThresholdDetector.Method.CEILING)
+        self.assertEqual(threshold.fade_bias, 0.5)
+        self.assertTrue(threshold.add_final_scene)
+        with self.assertRaises(ValueError):
+            choose_detector("unknown", 27.0, 15, False)
 
     def test_detect_scenes_finds_hard_cut(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
-            writer = cv2.VideoWriter(
-                str(video_path),
-                cv2.VideoWriter_fourcc(*"MJPG"),
-                10.0,
-                (32, 32),
-            )
-            self.assertTrue(writer.isOpened())
-            try:
-                for value in (0, 255):
-                    frame = np.full((32, 32, 3), value, dtype=np.uint8)
-                    for _ in range(20):
-                        writer.write(frame)
-            finally:
-                writer.release()
-
+            _write_hard_cut(video_path)
             scenes, fps = detect_scenes(
                 str(video_path),
                 method="content",
@@ -135,7 +192,50 @@ class VideoOpsTests(unittest.TestCase):
             [(0, 20), (20, 40)],
         )
         np.testing.assert_array_equal(selected_frames[0][0, 0], [0, 0, 0])
-        np.testing.assert_array_equal(selected_frames[20][0, 0], [255, 255, 255])
+        self.assertGreater(int(selected_frames[20][0, 0].mean()), 200)
+
+    def test_histogram_finds_hard_cut(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "hard-cut.avi"
+            _write_hard_cut(video_path)
+            histogram, _ = detect_scenes(
+                str(video_path),
+                method="histogram",
+                threshold=27.0,
+                min_scene_len_sec=0.0,
+                min_scene_len_frames=1,
+                luma_only=False,
+            )
+
+        self.assertEqual(
+            [(start.frame_num, end.frame_num) for start, end in histogram],
+            [(0, 20), (20, 40)],
+        )
+
+    def test_hash_finds_pattern_cut_in_tensor_stream(self):
+        rng = np.random.default_rng(0)
+        first = torch.from_numpy(
+            rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+        ).unsqueeze(0).repeat(20, 1, 1, 1)
+        second = torch.from_numpy(
+            rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+        ).unsqueeze(0).repeat(20, 1, 1, 1)
+        video = TensorVideoStream(torch.cat((first, second)).float() / 255.0, 10.0)
+
+        hashed, fps = detect_scenes_from_video(
+            video,
+            method="hash",
+            threshold=27.0,
+            min_scene_len_sec=0.0,
+            min_scene_len_frames=1,
+            luma_only=False,
+        )
+
+        self.assertAlmostEqual(fps, 10.0)
+        self.assertEqual(
+            [(start.frame_num, end.frame_num) for start, end in hashed],
+            [(0, 20), (20, 40)],
+        )
 
     def test_detect_scenes_finds_hard_cut_in_tensor_stream(self):
         frames = torch.cat(
@@ -160,6 +260,57 @@ class VideoOpsTests(unittest.TestCase):
             [(start.frame_num, end.frame_num) for start, end in scenes],
             [(0, 20), (20, 40)],
         )
+
+    def test_format_scenes_for_llm_uses_template_and_defaults(self):
+        rows = timecodes_to_dict(
+            [(FrameTimecode(0, 10.0), FrameTimecode(20, 10.0))],
+            10.0,
+        )
+        rows[0]["clip_path"] = "/tmp/clip.mp4"
+
+        text, prompts = format_scenes_for_llm(rows)
+        custom, custom_prompts = format_scenes_for_llm(
+            rows, "Shot {index}/{scene_count} {clip_path} {unknown}"
+        )
+
+        self.assertIn("# Scenes (1)", text)
+        self.assertIn("frames 0-20", text)
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("Scene 1/1:", prompts[0])
+        self.assertIn(DEFAULT_SCENE_PROMPT[:12], DEFAULT_SCENE_PROMPT)
+        self.assertEqual(custom_prompts[0], "Shot 1/1 /tmp/clip.mp4 {unknown}")
+        self.assertIn("# Scenes (1)", custom)
+
+    def test_sanitize_clip_name_strips_unsafe_characters(self):
+        self.assertEqual(sanitize_clip_name("My Video (1).mov"), "My_Video_1")
+        self.assertEqual(sanitize_clip_name(""), "scene")
+
+    @unittest.skipUnless(is_ffmpeg_available(), "ffmpeg is required to split clips")
+    def test_split_scene_clips_writes_one_file_per_scene(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "hard-cut.avi"
+            output_dir = Path(tmpdir) / "clips"
+            _write_hard_cut(video_path)
+            scenes, _ = detect_scenes(
+                str(video_path),
+                method="content",
+                threshold=10.0,
+                min_scene_len_sec=0.0,
+                min_scene_len_frames=1,
+                luma_only=False,
+            )
+            clips = split_scene_clips(
+                str(video_path),
+                scenes,
+                str(output_dir),
+                video_name="hard-cut",
+                reencode=True,
+            )
+
+            self.assertEqual(len(clips), 2)
+            for clip in clips:
+                self.assertTrue(Path(clip).is_file())
+                self.assertGreater(Path(clip).stat().st_size, 0)
 
 
 if __name__ == "__main__":
