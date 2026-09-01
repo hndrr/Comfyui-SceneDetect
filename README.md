@@ -1,7 +1,5 @@
 # Comfyui-SceneDetect
 
-![workflow](assets/2025-10-25-235141.png)
-
 Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, and the detected scene count.
 
 ## Features
@@ -87,6 +85,10 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `scene_count` (`INT`): Number of detected scenes.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
+
+### workflow_legacy_vhs
+![workflow_legacy_vhs](assets/2025-10-25-235141.png)
+
 
 The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
 
