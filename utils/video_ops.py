@@ -71,7 +71,7 @@ class TensorVideoStream(VideoStream):
 
     @property
     def position_ms(self) -> float:
-        return self.position.seconds * 1000.0
+        return self.position.get_seconds() * 1000.0
 
     @property
     def frame_number(self) -> int:
@@ -138,7 +138,7 @@ def timecodes_to_dict(
                 "fps": fps,
                 "start_time": start.get_timecode(),
                 "end_time": end.get_timecode(),
-                "duration_sec": max(0.0, end.seconds - start.seconds),
+                "duration_sec": max(0.0, end.get_seconds() - start.get_seconds()),
             }
         )
     return rows
