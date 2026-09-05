@@ -367,6 +367,29 @@ class VideoOpsTests(unittest.TestCase):
         self.assertTrue(luma_only)
         self.assertEqual(extra, {"hash_threshold": 0.4, "hash_size": 8, "hash_lowpass": 2})
 
+    def test_unpack_toggle_combo_expands_nested_show_all_settings(self):
+        enabled, extras = unpack_toggle_combo(
+            {
+                "show_all_settings": "true",
+                "delta_hue": 2.0,
+                "prompt_template": "Scene {index}",
+                "start_in_scene": True,
+                "downscale": 2,
+            },
+            "show_all_settings",
+        )
+
+        self.assertTrue(enabled)
+        self.assertEqual(
+            extras,
+            {
+                "delta_hue": 2.0,
+                "prompt_template": "Scene {index}",
+                "start_in_scene": True,
+                "downscale": 2,
+            },
+        )
+
     def test_unpack_toggle_combo_expands_nested_split_clips(self):
         enabled, extras = unpack_toggle_combo(
             {

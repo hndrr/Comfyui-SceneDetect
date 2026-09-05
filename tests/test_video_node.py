@@ -211,8 +211,7 @@ class VideoNodeTests(unittest.TestCase):
                 "thumbs_dir",
             ],
         )
-        self.assertNotIn("show_all_settings", types["required"])
-        self.assertNotIn("show_all_settings", types["optional"])
+        self.assertEqual(types["optional"]["show_all_settings"][0], "BOOLEAN")
         self.assertEqual(
             types["required"]["method"][0],
             ["content", "adaptive", "threshold", "hash", "histogram"],

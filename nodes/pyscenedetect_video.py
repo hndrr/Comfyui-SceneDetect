@@ -78,6 +78,7 @@ class PySceneDetectVideo(_NODE_BASE):
                 ),
                 "split_clips": ("BOOLEAN", {"default": False}),
                 "split_reencode": ("BOOLEAN", {"default": True}),
+                "show_all_settings": ("BOOLEAN", {"default": False}),
             }
             optional.update(detector_optional_input_types())
             return {
@@ -125,9 +126,13 @@ class PySceneDetectVideo(_NODE_BASE):
 
     @classmethod
     def execute(cls, video, method, **kwargs):
+        _, extra_ui = unpack_toggle_combo(
+            kwargs.pop("show_all_settings", False), "show_all_settings"
+        )
         split_clips, split_extra = unpack_toggle_combo(
             kwargs.pop("split_clips", False), "split_clips"
         )
+        kwargs.update(extra_ui)
         kwargs.update(split_extra)
         method, threshold, luma_only, detector_options = unpack_method_input(
             method,
