@@ -35,12 +35,20 @@ SPLIT_CLIPS_ON = [
     ("split_clips.split_reencode", True),
 ]
 
-SHOW_ALL_OFF = [
-    ("show_all_settings", "false"),
+# Always in widgets_values; ComfyUI hides them behind the native Advanced toggle.
+ADVANCED_WIDGETS = [
+    ("delta_hue", 1.0),
+    ("delta_sat", 1.0),
+    ("delta_lum", 1.0),
+    ("delta_edges", 0.0),
+    ("kernel_size", 0),
+    ("prompt_template", ""),
+    ("start_in_scene", False),
+    ("downscale", 0),
 ]
 
-VIDEO_WIDGETS = MASTER_WIDGET_PREFIX + SPLIT_CLIPS_ON + SHOW_ALL_OFF
-LEGACY_WIDGETS = MASTER_WIDGET_PREFIX + SHOW_ALL_OFF
+VIDEO_WIDGETS = MASTER_WIDGET_PREFIX + SPLIT_CLIPS_ON + ADVANCED_WIDGETS
+LEGACY_WIDGETS = MASTER_WIDGET_PREFIX + ADVANCED_WIDGETS
 
 VIDEO_OUTPUTS = [
     "images",
@@ -114,11 +122,25 @@ class SampleWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             [name for name, _value in VIDEO_WIDGETS[11:]],
-            ["split_clips", "split_clips.split_reencode", "show_all_settings"],
+            [
+                "split_clips",
+                "split_clips.split_reencode",
+                "delta_hue",
+                "delta_sat",
+                "delta_lum",
+                "delta_edges",
+                "kernel_size",
+                "prompt_template",
+                "start_in_scene",
+                "downscale",
+            ],
         )
         self.assertEqual(
             [name for name, _value in LEGACY_WIDGETS[11:]],
-            ["show_all_settings"],
+            [name for name, _value in ADVANCED_WIDGETS],
+        )
+        self.assertNotIn(
+            "show_all_settings", [name for name, _value in VIDEO_WIDGETS]
         )
 
     def test_recommended_graph_matches_current_video_node(self) -> None:
