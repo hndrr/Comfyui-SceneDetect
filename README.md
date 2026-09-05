@@ -1,9 +1,5 @@
 # Comfyui-SceneDetect
 
-![legacy VHS workflow screenshot from 2025-10](assets/2025-10-25-235141.png)
-
-The screenshot is the older three-output VHS graph. Current sample graphs are `workflow/pyscene_workflow.json` (recommended `VIDEO` path) and `workflow/pyscene_workflow_legacy_vhs.json`.
-
 Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, LLM-ready text, and the detected scene count. The recommended node can also split each scene into a `VIDEO` clip.
 
 ## Features
@@ -116,6 +112,8 @@ ComfyUI's built-in `Save Video` is the only core node that shows a video preview
 - Files already in temp are referenced in place. Other files are copied into `temp/scenedetect_preview/` for the `/view` endpoint. Nothing is written to the output directory.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
+
+![workflow_legacy_vhs](assets/2025-10-25-235141.png)
 
 The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list`. Clip splitting (`split_clips` / `scene_videos`) exists only on the recommended `VIDEO` node, because the Legacy VHS path has no file-backed source for ffmpeg.
 
