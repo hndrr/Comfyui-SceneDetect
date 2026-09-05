@@ -15,9 +15,8 @@ from ..utils.video_ops import (
     resize_keep_ar,
     frame_to_tensor_bhwc,
     unpack_method_input,
-    unpack_toggle_combo,
 )
-from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
+from .schema_v3 import _NODE_BASE, common_scene_inputs, io
 
 
 class _MultiInput(str):
@@ -56,7 +55,6 @@ class PySceneDetectToImages(_NODE_BASE):
         @classmethod
         def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
             optional = {
-                "show_all_settings": ("BOOLEAN", {"default": False}),
                 "representative": (["start", "middle", "end"], {"default": "start"}),
                 "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
@@ -101,7 +99,6 @@ class PySceneDetectToImages(_NODE_BASE):
             inputs=[
                 io.Image.Input("image"),
                 io.Custom("VHS_VIDEOINFO").Input("video_info"),
-                method_dynamic_combo(),
                 *common_scene_inputs(include_split=False),
             ],
             outputs=[
@@ -115,10 +112,6 @@ class PySceneDetectToImages(_NODE_BASE):
 
     @classmethod
     def execute(cls, image, video_info, method, **kwargs):
-        _, extra_ui = unpack_toggle_combo(
-            kwargs.pop("show_all_settings", False), "show_all_settings"
-        )
-        kwargs.update(extra_ui)
         method, threshold, luma_only, detector_options = unpack_method_input(
             method,
             kwargs.pop("threshold", 27.0),

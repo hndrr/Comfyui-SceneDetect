@@ -1,7 +1,8 @@
-"""Lock sample workflows to the current DynamicCombo widget order.
+"""Lock sample workflows to the current widget order.
 
-ComfyUI stores widget values by position. If schema_v3.py changes field
-order or defaults, these graphs must be rewritten the same way.
+ComfyUI stores widget values by position. The first 11 slots must stay
+identical to master v1.3.x so existing content-method graphs load without
+remapping. New fields are appended after that prefix.
 """
 
 from __future__ import annotations
@@ -14,24 +15,27 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = REPO / "workflow"
 
-# Flattened widget order for method=content, matching schema_v3.py.
-# Nested DynamicCombo children use parent.child names in the live UI;
-# the workflow JSON still serializes them as a positional array.
-CONTENT_METHOD_WIDGETS = [
+# Original 11 widgets from master (PySceneDetectVideo / PySceneDetectToImages).
+MASTER_WIDGET_PREFIX = [
     ("method", "content"),
-    ("method.threshold", 27.0),
-    ("method.luma_only", True),
-    ("method.delta_hue", 1.0),
-    ("method.delta_sat", 1.0),
-    ("method.delta_lum", 1.0),
-    ("method.delta_edges", 0.0),
-    ("method.kernel_size", 0),
-]
-
-COMMON_WIDGETS = [
+    ("threshold", 27.0),
     ("min_scene_len_sec", 0.0),
     ("min_scene_len_frames", 15),
+    ("luma_only", True),
     ("representative", "start"),
+    ("max_width", 0),
+    ("max_height", 0),
+    ("limit_scenes", 0),
+    ("write_thumbs", False),
+    ("thumbs_dir", ""),
+]
+
+CONTENT_WEIGHTS = [
+    ("delta_hue", 1.0),
+    ("delta_sat", 1.0),
+    ("delta_lum", 1.0),
+    ("delta_edges", 0.0),
+    ("kernel_size", 0),
 ]
 
 SPLIT_CLIPS_ON = [
@@ -39,12 +43,16 @@ SPLIT_CLIPS_ON = [
     ("split_clips.split_reencode", True),
 ]
 
-SHOW_ALL_OFF = [
-    ("show_all_settings", "false"),
+PROMPT_AND_DECODE = [
+    ("prompt_template", ""),
+    ("start_in_scene", False),
+    ("downscale", 0),
 ]
 
-VIDEO_WIDGETS = CONTENT_METHOD_WIDGETS + COMMON_WIDGETS + SPLIT_CLIPS_ON + SHOW_ALL_OFF
-LEGACY_WIDGETS = CONTENT_METHOD_WIDGETS + COMMON_WIDGETS + SHOW_ALL_OFF
+VIDEO_WIDGETS = (
+    MASTER_WIDGET_PREFIX + CONTENT_WEIGHTS + SPLIT_CLIPS_ON + PROMPT_AND_DECODE
+)
+LEGACY_WIDGETS = MASTER_WIDGET_PREFIX + CONTENT_WEIGHTS + PROMPT_AND_DECODE
 
 VIDEO_OUTPUTS = [
     "images",
@@ -94,6 +102,31 @@ def _link_map(graph: dict) -> dict[int, list]:
 
 
 class SampleWorkflowTests(unittest.TestCase):
+    def test_new_widgets_are_appended_after_the_master_prefix(self) -> None:
+        self.assertEqual(
+            [name for name, _value in VIDEO_WIDGETS[:11]],
+            [
+                "method",
+                "threshold",
+                "min_scene_len_sec",
+                "min_scene_len_frames",
+                "luma_only",
+                "representative",
+                "max_width",
+                "max_height",
+                "limit_scenes",
+                "write_thumbs",
+                "thumbs_dir",
+            ],
+        )
+        self.assertEqual(VIDEO_WIDGETS[:11], MASTER_WIDGET_PREFIX)
+        self.assertEqual(LEGACY_WIDGETS[:11], MASTER_WIDGET_PREFIX)
+        self.assertTrue(
+            all(not name.startswith("method.") for name, _value in VIDEO_WIDGETS)
+        )
+        self.assertNotIn("show_all_settings", [name for name, _value in VIDEO_WIDGETS])
+        self.assertNotIn("show_all_settings", [name for name, _value in LEGACY_WIDGETS])
+
     def test_recommended_graph_matches_current_video_node(self) -> None:
         graph = _load_workflow("pyscene_workflow.json")
         detect = _node_by_type(graph, "PySceneDetectVideo")
@@ -113,6 +146,10 @@ class SampleWorkflowTests(unittest.TestCase):
         self.assertEqual(
             detect["widgets_values"],
             [value for _name, value in VIDEO_WIDGETS],
+        )
+        self.assertEqual(
+            detect["widgets_values"][:11],
+            [value for _name, value in MASTER_WIDGET_PREFIX],
         )
         self.assertNotIn("PySceneDetectToImages", {node["type"] for node in graph["nodes"]})
         self.assertNotIn("VHS_LoadVideo", {node["type"] for node in graph["nodes"]})
@@ -166,6 +203,10 @@ class SampleWorkflowTests(unittest.TestCase):
         self.assertEqual(
             detect["widgets_values"],
             [value for _name, value in LEGACY_WIDGETS],
+        )
+        self.assertEqual(
+            detect["widgets_values"][:11],
+            [value for _name, value in MASTER_WIDGET_PREFIX],
         )
         self.assertNotIn("PySceneDetectVideo", {node["type"] for node in graph["nodes"]})
         self.assertNotIn(

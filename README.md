@@ -14,7 +14,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Optionally split detected scenes into `VIDEO` clips with ffmpeg
 - Preview unsaved clips with `PySceneDetect: Preview Videos` (writes nothing to the output directory)
 - Optionally store representative frames as JPEG thumbnails
-- Detector widgets use ComfyUI's native DynamicCombo under `method` (all fields for that detector). `show_all_settings` is a separate toggle for the rest of the node: resize, scene limit, thumbs, prompt, start-in-scene, and downscale
+- Existing `content`-method graphs keep the original 11 widget slots (`method` … `thumbs_dir`). New options are appended after that prefix so saved `widgets_values` do not shift
 
 ## Requirements
 
@@ -70,32 +70,31 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 
 ### `PySceneDetect: Video → Scenes`
 
-- Required inputs
+- Required inputs (same order as v1.3.x, then new fields)
   - `video` (`VIDEO`): Connect the output from ComfyUI's built-in `Load Video` node. The video is streamed from the compressed source instead of being expanded into a full frame batch.
-  - `method` (`content|adaptive|threshold|hash|histogram`): Scene detection method. ComfyUI shows every field for the selected detector:
-    - `content`: `threshold`, `luma_only`, `delta_hue`, `delta_sat`, `delta_lum`, `delta_edges`, `kernel_size`
-    - `adaptive`: `adaptive_threshold`, `window_width`, `min_content_val`, `luma_only`, plus the same `delta_*` / `kernel_size` weights
-    - `threshold`: `threshold`, `fade_bias`, `add_final_scene`, `threshold_method`
+  - `method` (`content|adaptive|threshold|hash|histogram`): Scene detection method. `content` has no nested widgets, so existing graphs keep their saved values. Other detectors show only their extra fields under this combo:
+    - `adaptive`: `adaptive_threshold`, `window_width`, `min_content_val`
+    - `threshold`: `fade_bias`, `add_final_scene`, `threshold_method`
     - `hash`: `hash_threshold`, `hash_size`, `hash_lowpass`
     - `histogram`: `hist_threshold`, `hist_bins`
+  - `threshold` (`FLOAT`): Shared content/threshold score. Same slot as v1.3.x.
   - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Values greater than zero override `min_scene_len_frames`.
   - `min_scene_len_frames` (`INT`): Minimum scene length in frames, used when `min_scene_len_sec` is `0`.
+  - `luma_only` (`BOOLEAN`): Restrict content/adaptive scoring to luma. Same slot as v1.3.x.
   - `representative` (`start|middle|end`): Position of the representative frame.
-  - `split_clips` (`false|true`): Split each detected scene into a `VIDEO` clip in temp. `true` also shows `split_reencode`.
-  - `show_all_settings` (`false|true`): `false` keeps the node to detection essentials. `true` shows `max_width`, `max_height`, `limit_scenes`, `write_thumbs`, `thumbs_dir`, `prompt_template`, `start_in_scene`, and `downscale`.
-
-- Optional inputs (visible when `show_all_settings` is `true`)
   - `max_width` (`INT`): Maximum width of the representative frame (0 disables resizing).
   - `max_height` (`INT`): Maximum height of the representative frame (0 disables resizing).
   - `limit_scenes` (`INT`): Limit the number of scenes processed from the start (0 disables the limit).
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
   - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
+  - `delta_hue` / `delta_sat` / `delta_lum` / `delta_edges` / `kernel_size`: Content-detector weights (appended after the original 11 widgets).
+  - `split_clips` (`false|true`): Split each detected scene into a `VIDEO` clip in temp. `true` also shows `split_reencode`.
   - `prompt_template` (`STRING`): Per-scene prompt template for VLM nodes. Empty uses `Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot.`
   - `start_in_scene` (`BOOLEAN`): Treat the first frame as already inside a scene.
   - `downscale` (`INT`): Detector downscale factor (`0` lets PySceneDetect choose).
   - `split_reencode` (`BOOLEAN`): Shown under `split_clips=true`. Default `true` re-encodes with libx264 so cuts match detected scene boundaries (needed for Preview Videos). Set `false` to copy streams (`-c copy`); faster, but keyframe-aligned only.
 
-- Outputs
+- Outputs (first three names and order match v1.3.x; extra outputs are appended)
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`). Connect to a VLM node.
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
@@ -115,7 +114,7 @@ ComfyUI's built-in `Save Video` is the only core node that shows a video preview
 
 ![workflow_legacy_vhs](assets/2025-10-25-235141.png)
 
-The legacy node keeps its original node ID and the original first three outputs so existing workflows continue to load. It also exposes the same extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list`. Clip splitting (`split_clips` / `scene_videos`) exists only on the recommended `VIDEO` node, because the Legacy VHS path has no file-backed source for ffmpeg.
+The legacy node keeps its original node ID, the original first three outputs, and the original 11 widget slots so existing VHS workflows continue to load. Extra detector parameters, `all_scenes_text`, and `per_scene_prompt_list` are appended. Clip splitting (`split_clips` / `scene_videos`) exists only on the recommended `VIDEO` node, because the Legacy VHS path has no file-backed source for ffmpeg.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -174,12 +173,11 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 
 1. Load a video with ComfyUI's built-in `Load Video` node.
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
-3. Choose `method` (all fields for that detector appear). Leave `show_all_settings` on `false` for a short node, or set `true` to show resize, thumbs, prompt, downscale, and the other node options.
-   Existing graphs that still have the old flat `method` combo must delete the node and add it again so ComfyUI loads the DynamicCombo schema.
+3. Choose `method`. Existing graphs saved with `method=content` load as-is: the original 11 widget values stay in the same slots, and new fields (`delta_*`, `split_clips`, `prompt_template`, …) take their defaults. If the saved graph used `adaptive` or `threshold`, re-check those detector-only fields after loading.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
 5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `scene_videos`. Connect `scene_videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.
 
-Recommended sample (`workflow/pyscene_workflow.json`) is rebuilt for the DynamicCombo schema (`method=content`, `split_clips=true`, `show_all_settings=false`):
+Recommended sample (`workflow/pyscene_workflow.json`) uses the compatibility widget order (`method=content`, `split_clips=true`):
 
 `Load Video` → `PySceneDetect: Video → Scenes` → `Preview Image` (`images`), `Preview Any` (`scenes_json` / `scene_count` / `all_scenes_text` / `per_scene_prompt_list`), `PySceneDetect: Preview Videos` (`scene_videos`), and core `Save Video` (`scene_videos`).
 
@@ -209,7 +207,8 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 - Preview Videos flashes the next scene's first frame: That happens when clips were cut with `-c copy`. Leave `split_reencode` on (the default). Preview also loops at the detected `duration_sec` so a copy-split tail is hidden, but saved files still contain it unless you re-encode.
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
-- Changing `method` does not swap detector fields: The node is still the old V1 combo from a previous version. Delete it, add `PySceneDetect: Video → Scenes` again, and restart ComfyUI. Widget visibility is handled by core DynamicCombo, not by this package's JavaScript.
+- Saved widget values look shifted: Graphs that used `method=content` should load without remapping. Graphs that used `adaptive` or `threshold` may need those extra detector fields set again, because those options add nested widgets after `method`. Do not delete a working `content` graph just to pick up new fields; extra widgets are appended and default themselves.
+- Changing `method` does not show extra detector fields: Restart ComfyUI so the V3 DynamicCombo schema is registered. Widget visibility is handled by core DynamicCombo, not by this package's JavaScript.
 
 ## License
 
