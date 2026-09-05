@@ -1,15 +1,67 @@
 from __future__ import annotations
 from contextlib import contextmanager
+from dataclasses import dataclass, fields
 from fractions import Fraction
 import os
+import re
 import tempfile
 from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
 import torch
-from scenedetect import FrameTimecode, SceneManager, open_video
-from scenedetect.detectors import ContentDetector, AdaptiveDetector, ThresholdDetector
+from scenedetect import (
+    FrameTimecode,
+    SceneManager,
+    is_ffmpeg_available,
+    open_video,
+    split_video_ffmpeg,
+)
+from scenedetect.detectors import (
+    AdaptiveDetector,
+    ContentDetector,
+    HashDetector,
+    HistogramDetector,
+    ThresholdDetector,
+)
 from scenedetect.video_stream import VideoStream
+
+DETECTION_METHODS = ["content", "adaptive", "threshold", "hash", "histogram"]
+DEFAULT_SCENE_PROMPT = (
+    "Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot."
+)
+FFMPEG_COPY_ARGS = "-map 0:v:0 -map 0:a? -map 0:s? -c copy"
+FFMPEG_REENCODE_ARGS = (
+    "-map 0:v:0 -map 0:a? -map 0:s? -c:v libx264 -preset veryfast -crf 22 -c:a aac"
+)
+
+
+@dataclass(frozen=True)
+class DetectorSettings:
+    adaptive_threshold: float = 3.0
+    window_width: int = 2
+    min_content_val: float = 15.0
+    delta_hue: float = 1.0
+    delta_sat: float = 1.0
+    delta_lum: float = 1.0
+    delta_edges: float = 0.0
+    kernel_size: int = 0
+    hash_threshold: float = 0.395
+    hash_size: int = 16
+    hash_lowpass: int = 2
+    hist_threshold: float = 0.05
+    hist_bins: int = 256
+    fade_bias: float = 0.0
+    add_final_scene: bool = False
+    threshold_method: str = "floor"
+    start_in_scene: bool = False
+    downscale: int = 0
+
+    @classmethod
+    def from_mapping(cls, data: Dict[str, Any] | None) -> "DetectorSettings":
+        if not data:
+            return cls()
+        names = {item.name for item in fields(cls)}
+        return cls(**{key: data[key] for key in names if key in data})
 
 
 class TensorVideoStream(VideoStream):
@@ -108,16 +160,176 @@ class TensorVideoStream(VideoStream):
         self._next_frame = min(frame, len(self._frames))
 
 
+def unpack_method_input(
+    method: Any,
+    threshold: float = 27.0,
+    luma_only: bool = True,
+    extra: Dict[str, Any] | None = None,
+) -> Tuple[str, float, bool, Dict[str, Any]]:
+    """Flatten a V3 DynamicCombo `method` dict, or pass through a plain method name."""
+    extras = dict(extra or {})
+    # Ignore leftover UI flags from earlier 1.4 drafts; they are not detector params.
+    extras.pop("show_all_settings", None)
+    if isinstance(method, dict):
+        selected = method.get("method", "content")
+        extras.update({key: value for key, value in method.items() if key != "method"})
+        extras.pop("show_all_settings", None)
+        method = selected
+    if "threshold" in extras:
+        threshold = extras.pop("threshold")
+    if "luma_only" in extras:
+        luma_only = extras.pop("luma_only")
+    return str(method or "content"), float(threshold), bool(luma_only), extras
+
+
+def unpack_toggle_combo(value: Any, name: str) -> Tuple[bool, Dict[str, Any]]:
+    """Flatten a V3 DynamicCombo used as an on/off toggle with nested fields."""
+    if isinstance(value, dict):
+        raw = value.get(name, False)
+        extras = {key: item for key, item in value.items() if key != name}
+        return _is_truthy(raw), extras
+    return _is_truthy(value), {}
+
+
+def _is_truthy(value: Any) -> bool:
+    return value is True or value == 1 or str(value).lower() == "true"
+
+
+def detector_optional_input_types() -> Dict[str, Any]:
+    """V1 extras. Marked advanced so they sit behind the native Advanced toggle."""
+    return {
+        "adaptive_threshold": (
+            "FLOAT",
+            {"default": 3.0, "min": 0.0, "max": 1000.0, "step": 0.1, "advanced": True},
+        ),
+        "window_width": ("INT", {"default": 2, "min": 1, "step": 1, "advanced": True}),
+        "min_content_val": (
+            "FLOAT",
+            {"default": 15.0, "min": 0.0, "max": 1000.0, "step": 0.1, "advanced": True},
+        ),
+        "delta_hue": (
+            "FLOAT",
+            {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
+        "delta_sat": (
+            "FLOAT",
+            {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
+        "delta_lum": (
+            "FLOAT",
+            {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
+        "delta_edges": (
+            "FLOAT",
+            {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
+        "kernel_size": ("INT", {"default": 0, "min": 0, "step": 2, "advanced": True}),
+        "hash_threshold": (
+            "FLOAT",
+            {"default": 0.395, "min": 0.0, "max": 1.0, "step": 0.001, "advanced": True},
+        ),
+        "hash_size": ("INT", {"default": 16, "min": 1, "step": 1, "advanced": True}),
+        "hash_lowpass": ("INT", {"default": 2, "min": 1, "step": 1, "advanced": True}),
+        "hist_threshold": (
+            "FLOAT",
+            {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.001, "advanced": True},
+        ),
+        "hist_bins": (
+            "INT",
+            {"default": 256, "min": 2, "max": 256, "step": 1, "advanced": True},
+        ),
+        "fade_bias": (
+            "FLOAT",
+            {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.05, "advanced": True},
+        ),
+        "add_final_scene": ("BOOLEAN", {"default": False, "advanced": True}),
+        "threshold_method": (
+            ["floor", "ceiling"],
+            {"default": "floor", "advanced": True},
+        ),
+        "start_in_scene": ("BOOLEAN", {"default": False, "advanced": True}),
+        "downscale": ("INT", {"default": 0, "min": 0, "step": 1, "advanced": True}),
+        "prompt_template": (
+            "STRING",
+            {
+                "default": "",
+                "multiline": True,
+                "placeholder": DEFAULT_SCENE_PROMPT,
+                "advanced": True,
+            },
+        ),
+    }
+
+
+def normalized_kernel_size(value: int) -> int | None:
+    size = int(value)
+    if size < 3:
+        return None
+    if size % 2 == 0:
+        size += 1
+    return size
+
+
 def choose_detector(
-    method: str, threshold: float, min_scene_len: int | float, luma_only: bool
+    method: str,
+    threshold: float,
+    min_scene_len: int | float,
+    luma_only: bool,
+    settings: DetectorSettings | None = None,
 ):
+    options = settings or DetectorSettings()
+    weights = ContentDetector.Components(
+        delta_hue=options.delta_hue,
+        delta_sat=options.delta_sat,
+        delta_lum=options.delta_lum,
+        delta_edges=options.delta_edges,
+    )
+    kernel_size = normalized_kernel_size(options.kernel_size)
+
     if method == "adaptive":
-        return AdaptiveDetector(min_scene_len=min_scene_len, luma_only=luma_only)
+        return AdaptiveDetector(
+            adaptive_threshold=options.adaptive_threshold,
+            min_scene_len=min_scene_len,
+            window_width=options.window_width,
+            min_content_val=options.min_content_val,
+            weights=weights,
+            luma_only=luma_only,
+            kernel_size=kernel_size,
+        )
     if method == "threshold":
-        # ThresholdDetector does not support luma_only in PySceneDetect 0.7.x.
-        return ThresholdDetector(threshold=threshold, min_scene_len=min_scene_len)
+        fade_method = (
+            ThresholdDetector.Method.CEILING
+            if str(options.threshold_method).lower() == "ceiling"
+            else ThresholdDetector.Method.FLOOR
+        )
+        return ThresholdDetector(
+            threshold=threshold,
+            min_scene_len=min_scene_len,
+            fade_bias=options.fade_bias,
+            add_final_scene=options.add_final_scene,
+            method=fade_method,
+        )
+    if method == "hash":
+        return HashDetector(
+            threshold=options.hash_threshold,
+            size=options.hash_size,
+            lowpass=options.hash_lowpass,
+            min_scene_len=min_scene_len,
+        )
+    if method == "histogram":
+        return HistogramDetector(
+            threshold=options.hist_threshold,
+            bins=options.hist_bins,
+            min_scene_len=min_scene_len,
+        )
+    if method != "content":
+        raise ValueError(f"Unsupported detection method: {method}")
     return ContentDetector(
-        threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only
+        threshold=threshold,
+        min_scene_len=min_scene_len,
+        weights=weights,
+        luma_only=luma_only,
+        kernel_size=kernel_size,
     )
 
 
@@ -184,6 +396,7 @@ def detect_scenes(
     luma_only: bool,
     start_time: float = 0.0,
     duration: float = 0.0,
+    settings: DetectorSettings | None = None,
 ):
     video = open_video(video_path)
     if start_time > 0:
@@ -196,6 +409,7 @@ def detect_scenes(
         min_scene_len_frames,
         luma_only,
         duration,
+        settings=settings,
     )
 
 
@@ -207,7 +421,9 @@ def detect_scenes_from_video(
     min_scene_len_frames: int,
     luma_only: bool,
     duration: float = 0.0,
+    settings: DetectorSettings | None = None,
 ):
+    options = settings or DetectorSettings()
     fps = float(getattr(video, "frame_rate", 0.0))
     min_scene_len_seconds = max(0.0, float(min_scene_len_sec))
     min_scene_len = (
@@ -216,16 +432,21 @@ def detect_scenes_from_video(
         else max(0, int(min_scene_len_frames))
     )
     manager = SceneManager()
+    if options.downscale and options.downscale > 0:
+        manager.auto_downscale = False
+        manager.downscale = int(options.downscale)
 
     try:
-        detector = choose_detector(method, threshold, min_scene_len, luma_only)
+        detector = choose_detector(
+            method, threshold, min_scene_len, luma_only, settings=options
+        )
         manager.add_detector(detector)
         manager.detect_scenes(
             video=video,
             duration=duration if duration > 0 else None,
             show_progress=False,
         )
-        scene_list = manager.get_scene_list()
+        scene_list = manager.get_scene_list(start_in_scene=options.start_in_scene)
     finally:
         # Ensure file-backed streams are released even if detection raises.
         release = getattr(video, "release", None)
@@ -266,3 +487,120 @@ def read_video_frames(video_path: str, frame_indices: List[int]) -> Dict[int, np
     finally:
         capture.release()
     return frames
+
+
+def sanitize_clip_name(name: str) -> str:
+    stem = os.path.splitext(os.path.basename(name or ""))[0]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._")
+    return cleaned or "scene"
+
+
+def _collect_scene_clip_paths(
+    output_dir: str, clip_name: str, scene_count: int
+) -> List[str]:
+    pattern = re.compile(rf"^{re.escape(clip_name)}-Scene-(\d+)\.mp4$")
+    found: List[Tuple[int, str]] = []
+    for name in os.listdir(output_dir):
+        match = pattern.match(name)
+        if match:
+            found.append((int(match.group(1)), os.path.join(output_dir, name)))
+    found.sort(key=lambda item: item[0])
+    if len(found) != scene_count:
+        raise RuntimeError(
+            f"Expected {scene_count} scene clips in {output_dir}, found {len(found)}."
+        )
+    return [path for _, path in found]
+
+
+def split_scene_clips(
+    video_path: str,
+    scene_list: List[Tuple[FrameTimecode, FrameTimecode]],
+    output_dir: str,
+    video_name: str = "scene",
+    reencode: bool = True,
+) -> List[str]:
+    if not scene_list:
+        return []
+    if not is_ffmpeg_available():
+        raise RuntimeError(
+            "ffmpeg is required to split scene clips. Install ffmpeg and ensure it is on PATH."
+        )
+
+    os.makedirs(output_dir, exist_ok=True)
+    clip_name = sanitize_clip_name(video_name)
+    attempts = [True] if reencode else [False, True]
+    last_error = "ffmpeg failed to split scene clips."
+    for attempt_reencode in attempts:
+        ret = split_video_ffmpeg(
+            video_path,
+            scene_list,
+            output_dir=output_dir,
+            output_file_template="$VIDEO_NAME-Scene-$SCENE_NUMBER.mp4",
+            video_name=clip_name,
+            arg_override=(
+                FFMPEG_REENCODE_ARGS if attempt_reencode else FFMPEG_COPY_ARGS
+            ),
+            show_progress=False,
+            show_output=False,
+        )
+        if ret != 0:
+            last_error = f"ffmpeg failed to split scene clips (exit code {ret})."
+            continue
+        try:
+            return _collect_scene_clip_paths(
+                output_dir, clip_name, len(scene_list)
+            )
+        except RuntimeError as exc:
+            last_error = str(exc)
+    raise RuntimeError(last_error)
+
+
+def load_video_from_file(path: str):
+    from comfy_api.latest import InputImpl
+
+    return InputImpl.VideoFromFile(path)
+
+
+def stamp_scene_duration(clip: Any, duration_sec: float) -> Any:
+    """Attach detected scene length so preview can hide the copy-split tail."""
+    try:
+        setattr(clip, "scene_duration_sec", float(duration_sec))
+    except (AttributeError, TypeError):
+        pass
+    return clip
+
+
+class _TemplateMap(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def format_scenes_for_llm(
+    rows: List[Dict[str, Any]],
+    template: str = "",
+) -> Tuple[str, List[str]]:
+    prompt_template = (template or "").strip() or DEFAULT_SCENE_PROMPT
+    scene_count = len(rows)
+    prompts: List[str] = []
+    lines = [f"# Scenes ({scene_count})"]
+    for row in rows:
+        values = {
+            "index": row["index"],
+            "scene_count": scene_count,
+            "start_time": row["start_time"],
+            "end_time": row["end_time"],
+            "duration_sec": float(row["duration_sec"]),
+            "start_frame": row["start_frame"],
+            "end_frame": row["end_frame"],
+            "duration_frames": row["duration_frames"],
+            "clip_path": row.get("clip_path") or "",
+        }
+        try:
+            prompts.append(prompt_template.format_map(_TemplateMap(values)))
+        except (ValueError, IndexError):
+            prompts.append(prompt_template)
+        lines.append(
+            f"{row['index']}. {row['start_time']} – {row['end_time']} | "
+            f"{float(row['duration_sec']):.3f}s | frames {row['start_frame']}-{row['end_frame']}"
+        )
+    return "\n".join(lines), prompts

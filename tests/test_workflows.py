@@ -1,0 +1,250 @@
+"""Lock sample workflows to the current widget order.
+
+ComfyUI stores widget values by position. The first 11 slots must stay
+identical to master v1.3.x so existing content-method graphs load without
+remapping. New fields are appended after that prefix.
+"""
+
+from __future__ import annotations
+
+import json
+import unittest
+from pathlib import Path
+
+
+REPO = Path(__file__).resolve().parents[1]
+WORKFLOW_DIR = REPO / "workflow"
+
+# Original 11 widgets from master (PySceneDetectVideo / PySceneDetectToImages).
+MASTER_WIDGET_PREFIX = [
+    ("method", "content"),
+    ("threshold", 27.0),
+    ("min_scene_len_sec", 0.0),
+    ("min_scene_len_frames", 15),
+    ("luma_only", True),
+    ("representative", "start"),
+    ("max_width", 0),
+    ("max_height", 0),
+    ("limit_scenes", 0),
+    ("write_thumbs", False),
+    ("thumbs_dir", ""),
+]
+
+SPLIT_CLIPS_ON = [
+    ("split_clips", "true"),
+    ("split_clips.split_reencode", True),
+]
+
+# Always in widgets_values; ComfyUI hides them behind the native Advanced toggle.
+ADVANCED_WIDGETS = [
+    ("delta_hue", 1.0),
+    ("delta_sat", 1.0),
+    ("delta_lum", 1.0),
+    ("delta_edges", 0.0),
+    ("kernel_size", 0),
+    ("prompt_template", ""),
+    ("start_in_scene", False),
+    ("downscale", 0),
+]
+
+VIDEO_WIDGETS = MASTER_WIDGET_PREFIX + SPLIT_CLIPS_ON + ADVANCED_WIDGETS
+LEGACY_WIDGETS = MASTER_WIDGET_PREFIX + ADVANCED_WIDGETS
+
+VIDEO_OUTPUTS = [
+    "images",
+    "scenes_json",
+    "scene_count",
+    "all_scenes_text",
+    "per_scene_prompt_list",
+    "scene_videos",
+]
+LEGACY_OUTPUTS = [
+    "images",
+    "scenes_json",
+    "scene_count",
+    "all_scenes_text",
+    "per_scene_prompt_list",
+]
+
+
+def _load_workflow(name: str) -> dict:
+    path = WORKFLOW_DIR / name
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _node_by_type(graph: dict, node_type: str) -> dict:
+    matches = [node for node in graph["nodes"] if node["type"] == node_type]
+    if len(matches) != 1:
+        raise AssertionError(f"expected one {node_type} node, found {len(matches)}")
+    return matches[0]
+
+
+def _output_names(node: dict) -> list[str]:
+    return [slot["name"] for slot in node.get("outputs", [])]
+
+
+def _wired_output_names(node: dict) -> list[str]:
+    names = []
+    for slot in node.get("outputs", []):
+        links = slot.get("links") or []
+        if links:
+            names.append(slot["name"])
+    return names
+
+
+def _link_map(graph: dict) -> dict[int, list]:
+    return {row[0]: row for row in graph["links"]}
+
+
+class SampleWorkflowTests(unittest.TestCase):
+    def test_new_widgets_are_appended_after_the_master_prefix(self) -> None:
+        self.assertEqual(
+            [name for name, _value in VIDEO_WIDGETS[:11]],
+            [
+                "method",
+                "threshold",
+                "min_scene_len_sec",
+                "min_scene_len_frames",
+                "luma_only",
+                "representative",
+                "max_width",
+                "max_height",
+                "limit_scenes",
+                "write_thumbs",
+                "thumbs_dir",
+            ],
+        )
+        self.assertEqual(VIDEO_WIDGETS[:11], MASTER_WIDGET_PREFIX)
+        self.assertEqual(LEGACY_WIDGETS[:11], MASTER_WIDGET_PREFIX)
+        self.assertTrue(
+            all(not name.startswith("method.") for name, _value in VIDEO_WIDGETS)
+        )
+        self.assertEqual(
+            [name for name, _value in VIDEO_WIDGETS[11:]],
+            [
+                "split_clips",
+                "split_clips.split_reencode",
+                "delta_hue",
+                "delta_sat",
+                "delta_lum",
+                "delta_edges",
+                "kernel_size",
+                "prompt_template",
+                "start_in_scene",
+                "downscale",
+            ],
+        )
+        self.assertEqual(
+            [name for name, _value in LEGACY_WIDGETS[11:]],
+            [name for name, _value in ADVANCED_WIDGETS],
+        )
+        self.assertNotIn(
+            "show_all_settings", [name for name, _value in VIDEO_WIDGETS]
+        )
+
+    def test_recommended_graph_matches_current_video_node(self) -> None:
+        graph = _load_workflow("pyscene_workflow.json")
+        detect = _node_by_type(graph, "PySceneDetectVideo")
+        preview = _node_by_type(graph, "PySceneDetectPreviewVideos")
+        save = _node_by_type(graph, "SaveVideo")
+        load = _node_by_type(graph, "LoadVideo")
+
+        self.assertEqual(_output_names(detect), VIDEO_OUTPUTS)
+        self.assertEqual(_wired_output_names(detect), VIDEO_OUTPUTS)
+        self.assertEqual(
+            [slot["name"] for slot in detect["inputs"]],
+            ["video"] + [name for name, _value in VIDEO_WIDGETS],
+        )
+        for slot in detect["inputs"][1:]:
+            self.assertEqual(slot["widget"]["name"], slot["name"])
+            self.assertIsNone(slot["link"])
+        self.assertEqual(
+            detect["widgets_values"],
+            [value for _name, value in VIDEO_WIDGETS],
+        )
+        self.assertEqual(
+            detect["widgets_values"][:11],
+            [value for _name, value in MASTER_WIDGET_PREFIX],
+        )
+        self.assertNotIn("PySceneDetectToImages", {node["type"] for node in graph["nodes"]})
+        self.assertNotIn("VHS_LoadVideo", {node["type"] for node in graph["nodes"]})
+
+        links = _link_map(graph)
+        video_in = next(slot for slot in detect["inputs"] if slot["name"] == "video")
+        self.assertEqual(links[video_in["link"]][1], load["id"])
+        self.assertEqual(links[preview["inputs"][0]["link"]][1], detect["id"])
+        self.assertEqual(
+            links[preview["inputs"][0]["link"]][2], VIDEO_OUTPUTS.index("scene_videos")
+        )
+        self.assertEqual(links[save["inputs"][0]["link"]][1], detect["id"])
+        self.assertEqual(
+            links[save["inputs"][0]["link"]][2], VIDEO_OUTPUTS.index("scene_videos")
+        )
+
+        preview_any_targets = {
+            slot["name"]: slot["links"][0]
+            for slot in detect["outputs"]
+            if slot["name"]
+            in {"scenes_json", "scene_count", "all_scenes_text", "per_scene_prompt_list"}
+        }
+        for output_name, link_id in preview_any_targets.items():
+            target_id = links[link_id][3]
+            target = next(node for node in graph["nodes"] if node["id"] == target_id)
+            self.assertEqual(target["type"], "PreviewAny", output_name)
+            self.assertIn(output_name, target.get("title", ""), output_name)
+
+        image_link = next(
+            slot["links"][0] for slot in detect["outputs"] if slot["name"] == "images"
+        )
+        image_target = next(
+            node for node in graph["nodes"] if node["id"] == links[image_link][3]
+        )
+        self.assertEqual(image_target["type"], "PreviewImage")
+
+    def test_legacy_graph_matches_current_vhs_node(self) -> None:
+        graph = _load_workflow("pyscene_workflow_legacy_vhs.json")
+        detect = _node_by_type(graph, "PySceneDetectToImages")
+        load = _node_by_type(graph, "VHS_LoadVideo")
+
+        self.assertEqual(_output_names(detect), LEGACY_OUTPUTS)
+        self.assertEqual(_wired_output_names(detect), LEGACY_OUTPUTS)
+        self.assertEqual(
+            [slot["name"] for slot in detect["inputs"]],
+            ["image", "video_info"] + [name for name, _value in LEGACY_WIDGETS],
+        )
+        for slot in detect["inputs"][2:]:
+            self.assertEqual(slot["widget"]["name"], slot["name"])
+            self.assertIsNone(slot["link"])
+        self.assertEqual(
+            detect["widgets_values"],
+            [value for _name, value in LEGACY_WIDGETS],
+        )
+        self.assertEqual(
+            detect["widgets_values"][:11],
+            [value for _name, value in MASTER_WIDGET_PREFIX],
+        )
+        self.assertNotIn("PySceneDetectVideo", {node["type"] for node in graph["nodes"]})
+        self.assertNotIn(
+            "PySceneDetectPreviewVideos", {node["type"] for node in graph["nodes"]}
+        )
+
+        links = _link_map(graph)
+        image_in = next(slot for slot in detect["inputs"] if slot["name"] == "image")
+        info_in = next(slot for slot in detect["inputs"] if slot["name"] == "video_info")
+        self.assertEqual(links[image_in["link"]][1], load["id"])
+        self.assertEqual(links[info_in["link"]][1], load["id"])
+        self.assertEqual(links[info_in["link"]][2], 3)
+
+        for slot in detect["outputs"]:
+            target_id = links[slot["links"][0]][3]
+            target = next(node for node in graph["nodes"] if node["id"] == target_id)
+            if slot["name"] == "images":
+                self.assertEqual(target["type"], "PreviewImage")
+            else:
+                self.assertEqual(target["type"], "PreviewAny")
+                self.assertIn(slot["name"], target.get("title", ""))
+
+
+if __name__ == "__main__":
+    unittest.main()

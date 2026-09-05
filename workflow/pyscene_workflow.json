@@ -1,13 +1,13 @@
 {
   "id": "18993286-0bab-4b65-bf5d-a44da8346b61",
   "revision": 0,
-  "last_node_id": 27,
-  "last_link_id": 23,
+  "last_node_id": 31,
+  "last_link_id": 27,
   "nodes": [
     {
       "id": 20,
       "type": "LoadVideo",
-      "pos": [-2104.1364552017867, -1836.3454728601744],
+      "pos": [-2104, -1840],
       "size": [320, 180],
       "flags": {},
       "order": 0,
@@ -35,26 +35,130 @@
       "widgets_values": [""]
     },
     {
+      "id": 27,
+      "type": "PySceneDetectVideo",
+      "title": "PySceneDetect: Video → Scenes",
+      "pos": [-1693, -1840],
+      "size": [360, 560],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {"name": "video", "type": "VIDEO", "link": 20},
+        {"name": "method", "type": "COMBO", "widget": {"name": "method"}, "link": null},
+        {"name": "threshold", "type": "FLOAT", "widget": {"name": "threshold"}, "link": null},
+        {"name": "min_scene_len_sec", "type": "FLOAT", "widget": {"name": "min_scene_len_sec"}, "link": null},
+        {"name": "min_scene_len_frames", "type": "INT", "widget": {"name": "min_scene_len_frames"}, "link": null},
+        {"name": "luma_only", "type": "BOOLEAN", "widget": {"name": "luma_only"}, "link": null},
+        {"name": "representative", "type": "COMBO", "widget": {"name": "representative"}, "link": null},
+        {"name": "max_width", "type": "INT", "widget": {"name": "max_width"}, "link": null},
+        {"name": "max_height", "type": "INT", "widget": {"name": "max_height"}, "link": null},
+        {"name": "limit_scenes", "type": "INT", "widget": {"name": "limit_scenes"}, "link": null},
+        {"name": "write_thumbs", "type": "BOOLEAN", "widget": {"name": "write_thumbs"}, "link": null},
+        {"name": "thumbs_dir", "type": "STRING", "widget": {"name": "thumbs_dir"}, "link": null},
+        {"name": "split_clips", "type": "COMBO", "widget": {"name": "split_clips"}, "link": null},
+        {"name": "split_clips.split_reencode", "type": "BOOLEAN", "widget": {"name": "split_clips.split_reencode"}, "link": null},
+        {"name": "delta_hue", "type": "FLOAT", "widget": {"name": "delta_hue"}, "link": null},
+        {"name": "delta_sat", "type": "FLOAT", "widget": {"name": "delta_sat"}, "link": null},
+        {"name": "delta_lum", "type": "FLOAT", "widget": {"name": "delta_lum"}, "link": null},
+        {"name": "delta_edges", "type": "FLOAT", "widget": {"name": "delta_edges"}, "link": null},
+        {"name": "kernel_size", "type": "INT", "widget": {"name": "kernel_size"}, "link": null},
+        {"name": "prompt_template", "type": "STRING", "widget": {"name": "prompt_template"}, "link": null},
+        {"name": "start_in_scene", "type": "BOOLEAN", "widget": {"name": "start_in_scene"}, "link": null},
+        {"name": "downscale", "type": "INT", "widget": {"name": "downscale"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "images", "type": "IMAGE", "links": [21]},
+        {"name": "scenes_json", "type": "STRING", "links": [22]},
+        {"name": "scene_count", "type": "INT", "links": [23]},
+        {"name": "all_scenes_text", "type": "STRING", "links": [24]},
+        {"name": "per_scene_prompt_list", "type": "STRING", "links": [25], "shape": 6},
+        {"name": "scene_videos", "type": "VIDEO", "links": [26, 27], "shape": 6}
+      ],
+      "properties": {
+        "aux_id": "hndrr/Comfyui-SceneDetect",
+        "Node name for S&R": "PySceneDetectVideo"
+      },
+      "widgets_values": [
+        "content",
+        27.0,
+        0.0,
+        15,
+        true,
+        "start",
+        0,
+        0,
+        0,
+        false,
+        "",
+        "true",
+        true,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        0,
+        "",
+        false,
+        0
+      ]
+    },
+    {
+      "id": 26,
+      "type": "PreviewImage",
+      "title": "Preview Image (images)",
+      "pos": [-1240, -1840],
+      "size": [320, 386],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 21}
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
       "id": 24,
       "type": "PreviewAny",
-      "pos": [-1289.0521433243885, -1346.8697320405422],
-      "size": [328.51442980984336, 576.7303608019685],
+      "title": "Preview Any (scenes_json)",
+      "pos": [-1240, -1420],
+      "size": [320, 220],
       "flags": {},
       "order": 3,
       "mode": 0,
       "inputs": [
-        {
-          "name": "source",
-          "type": "*",
-          "link": 22
-        }
+        {"name": "source", "type": "*", "link": 22}
       ],
       "outputs": [
-        {
-          "name": "STRING",
-          "type": "STRING",
-          "links": null
-        }
+        {"name": "STRING", "type": "STRING", "links": null}
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [null, null, null]
+    },
+    {
+      "id": 28,
+      "type": "PreviewAny",
+      "title": "Preview Any (all_scenes_text)",
+      "pos": [-1240, -1160],
+      "size": [320, 220],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {"name": "source", "type": "*", "link": 24}
+      ],
+      "outputs": [
+        {"name": "STRING", "type": "STRING", "links": null}
       ],
       "properties": {
         "cnr_id": "comfy-core",
@@ -66,24 +170,17 @@
     {
       "id": 25,
       "type": "PreviewAny",
-      "pos": [-1669.144761501101, -1355.881686980728],
-      "size": [268.2845948403408, 160],
+      "title": "Preview Any (scene_count)",
+      "pos": [-1240, -900],
+      "size": [268, 160],
       "flags": {},
-      "order": 4,
+      "order": 5,
       "mode": 0,
       "inputs": [
-        {
-          "name": "source",
-          "type": "*",
-          "link": 23
-        }
+        {"name": "source", "type": "*", "link": 23}
       ],
       "outputs": [
-        {
-          "name": "STRING",
-          "type": "STRING",
-          "links": null
-        }
+        {"name": "STRING", "type": "STRING", "links": null}
       ],
       "properties": {
         "cnr_id": "comfy-core",
@@ -93,91 +190,85 @@
       "widgets_values": [null, null, null]
     },
     {
-      "id": 26,
-      "type": "PreviewImage",
-      "pos": [-1277.8367156008655, -1839.8612091963917],
-      "size": [320.5009672342379, 386.178265689643],
+      "id": 29,
+      "type": "PreviewAny",
+      "title": "Preview Any (per_scene_prompt_list)",
+      "pos": [-860, -1160],
+      "size": [320, 220],
       "flags": {},
-      "order": 2,
+      "order": 6,
       "mode": 0,
       "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 21
-        }
+        {"name": "source", "type": "*", "link": 25}
       ],
-      "outputs": [],
+      "outputs": [
+        {"name": "STRING", "type": "STRING", "links": null}
+      ],
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.34.0",
-        "Node name for S&R": "PreviewImage"
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [null, null, null]
+    },
+    {
+      "id": 30,
+      "type": "PySceneDetectPreviewVideos",
+      "title": "PySceneDetect: Preview Videos",
+      "pos": [-860, -1840],
+      "size": [320, 280],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "video", "type": "VIDEO", "link": 26}
+      ],
+      "outputs": [],
+      "properties": {
+        "aux_id": "hndrr/Comfyui-SceneDetect",
+        "Node name for S&R": "PySceneDetectPreviewVideos"
       },
       "widgets_values": []
     },
     {
-      "id": 27,
-      "type": "PySceneDetectVideo",
-      "pos": [-1693.2407492311454, -1840.6326618935445],
-      "size": [318.5611328125, 338],
+      "id": 31,
+      "type": "SaveVideo",
+      "title": "Save Video (scene_videos)",
+      "pos": [-860, -1480],
+      "size": [320, 250],
       "flags": {},
-      "order": 1,
+      "order": 8,
       "mode": 0,
       "inputs": [
-        {
-          "name": "video",
-          "type": "VIDEO",
-          "link": 20
-        }
+        {"name": "video", "type": "VIDEO", "link": 27}
       ],
       "outputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "links": [21]
-        },
-        {
-          "name": "scenes_json",
-          "type": "STRING",
-          "links": [22]
-        },
-        {
-          "name": "scene_count",
-          "type": "INT",
-          "links": [23]
-        }
+        {"name": "video", "type": "VIDEO", "links": null}
       ],
       "properties": {
-        "aux_id": "hndrr/Comfyui-SceneDetect",
-        "Node name for S&R": "PySceneDetectVideo"
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "SaveVideo"
       },
-      "widgets_values": [
-        "content",
-        27,
-        0,
-        1,
-        true,
-        "start",
-        0,
-        0,
-        0,
-        false,
-        ""
-      ]
+      "widgets_values": ["video/scenedetect", "auto", "auto"]
     }
   ],
   "links": [
     [20, 20, 0, 27, 0, "VIDEO"],
     [21, 27, 0, 26, 0, "IMAGE"],
     [22, 27, 1, 24, 0, "STRING"],
-    [23, 27, 2, 25, 0, "*"]
+    [23, 27, 2, 25, 0, "*"],
+    [24, 27, 3, 28, 0, "STRING"],
+    [25, 27, 4, 29, 0, "*"],
+    [26, 27, 5, 30, 0, "VIDEO"],
+    [27, 27, 5, 31, 0, "VIDEO"]
   ],
   "groups": [],
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.7972024500000008,
-      "offset": [2419.784760651444, 2071.63960488505]
+      "scale": 0.75,
+      "offset": [2300, 2100]
     },
     "frontendVersion": "1.49.6"
   },
