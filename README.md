@@ -15,7 +15,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Preview unsaved clips with `PySceneDetect: Preview Videos` (writes nothing to the output directory)
 - Optionally store representative frames as JPEG thumbnails
 - Existing `content`-method graphs keep the original 11 widget slots (`method` … `thumbs_dir`). New options are appended after that prefix so saved `widgets_values` do not shift
-- `show_all_settings` toggles the extra fields added in 1.4 (`delta_*` / `kernel_size` / `prompt_template` / `start_in_scene` / `downscale`). The original 11 stay visible so existing graphs do not shift
+- Extra 1.4 fields (`delta_*` / `kernel_size` / `prompt_template` / `start_in_scene` / `downscale`) sit behind ComfyUI's native **Advanced** toggle. They stay in the widget array so existing graphs do not shift
 
 ## Requirements
 
@@ -89,10 +89,9 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
   - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
   - `split_clips` (`false|true`): Split each detected scene into a `VIDEO` clip in temp. `true` also shows `split_reencode`.
-  - `show_all_settings` (`false|true`): `false` keeps the node to the original fields plus clip splitting. `true` shows the extra 1.4 settings: `delta_hue`, `delta_sat`, `delta_lum`, `delta_edges`, `kernel_size`, `prompt_template`, `start_in_scene`, and `downscale`. Nested after the original 11 widgets so existing `widgets_values` stay aligned.
   - `split_reencode` (`BOOLEAN`): Shown under `split_clips=true`. Default `true` re-encodes with libx264 so cuts match detected scene boundaries (needed for Preview Videos). Set `false` to copy streams (`-c copy`); faster, but keyframe-aligned only.
 
-- Extra inputs (visible when `show_all_settings` is `true`)
+- Advanced inputs (native node Advanced toggle; always stored after the original 11 widgets)
   - `delta_hue` / `delta_sat` / `delta_lum` / `delta_edges` / `kernel_size`: Content-detector weights.
   - `prompt_template` (`STRING`): Per-scene prompt template for VLM nodes. Empty uses `Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot.`
   - `start_in_scene` (`BOOLEAN`): Treat the first frame as already inside a scene.
@@ -177,11 +176,11 @@ MediaPipe and other pose/face detectors are not part of PySceneDetect. Use `scen
 
 1. Load a video with ComfyUI's built-in `Load Video` node.
 2. Add `PySceneDetect: Video → Scenes` and connect the `VIDEO` output directly.
-3. Choose `method`. Existing graphs saved with `method=content` load as-is: the original 11 widget values stay in the same slots. `split_clips` and `show_all_settings` append after that prefix and default themselves. Leave `show_all_settings` on `false` for a short node, or set `true` to show content weights, prompt, start-in-scene, and downscale. If the saved graph used `adaptive` or `threshold`, re-check those detector-only fields after loading.
+3. Choose `method`. Existing graphs saved with `method=content` load as-is: the original 11 widget values stay in the same slots. Open the node's **Advanced** section for content weights, prompt template, start-in-scene, and downscale. If the saved graph used `adaptive` or `threshold`, re-check those detector-only fields after loading.
 4. Configure the representative frame position, optional resizing, thumbnail export, clip splitting, and prompt template.
 5. Execute the graph to receive representative frames on `images`, metadata on `scenes_json` / `all_scenes_text`, and optional clips on `scene_videos`. Connect `scene_videos` to `PySceneDetect: Preview Videos` to inspect clips without saving, or to `Save Video` to write files in the output directory.
 
-Recommended sample (`workflow/pyscene_workflow.json`) uses the compatibility widget order (`method=content`, `split_clips=true`, `show_all_settings=false`):
+Recommended sample (`workflow/pyscene_workflow.json`) uses the compatibility widget order (`method=content`, `split_clips=true`):
 
 `Load Video` → `PySceneDetect: Video → Scenes` → `Preview Image` (`images`), `Preview Any` (`scenes_json` / `scene_count` / `all_scenes_text` / `per_scene_prompt_list`), `PySceneDetect: Preview Videos` (`scene_videos`), and core `Save Video` (`scene_videos`).
 

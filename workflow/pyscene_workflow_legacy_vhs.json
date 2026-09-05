@@ -72,7 +72,14 @@
         {"name": "limit_scenes", "type": "INT", "widget": {"name": "limit_scenes"}, "link": null},
         {"name": "write_thumbs", "type": "BOOLEAN", "widget": {"name": "write_thumbs"}, "link": null},
         {"name": "thumbs_dir", "type": "STRING", "widget": {"name": "thumbs_dir"}, "link": null},
-        {"name": "show_all_settings", "type": "COMBO", "widget": {"name": "show_all_settings"}, "link": null}
+        {"name": "delta_hue", "type": "FLOAT", "widget": {"name": "delta_hue"}, "link": null},
+        {"name": "delta_sat", "type": "FLOAT", "widget": {"name": "delta_sat"}, "link": null},
+        {"name": "delta_lum", "type": "FLOAT", "widget": {"name": "delta_lum"}, "link": null},
+        {"name": "delta_edges", "type": "FLOAT", "widget": {"name": "delta_edges"}, "link": null},
+        {"name": "kernel_size", "type": "INT", "widget": {"name": "kernel_size"}, "link": null},
+        {"name": "prompt_template", "type": "STRING", "widget": {"name": "prompt_template"}, "link": null},
+        {"name": "start_in_scene", "type": "BOOLEAN", "widget": {"name": "start_in_scene"}, "link": null},
+        {"name": "downscale", "type": "INT", "widget": {"name": "downscale"}, "link": null}
       ],
       "outputs": [
         {"name": "images", "type": "IMAGE", "links": [22]},
@@ -97,7 +104,14 @@
         0,
         false,
         "",
-        "false"
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        0,
+        "",
+        false,
+        0
       ]
     },
     {

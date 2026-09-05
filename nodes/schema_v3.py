@@ -28,8 +28,8 @@ def method_dynamic_combo():
     """Detector combo. `content` has no nested widgets so old graphs stay aligned.
 
     Extra detectors nest only their unique fields. `threshold` and `luma_only`
-    stay at top level (same slots as v1.3.x). Content weights live after the
-    original 11 widgets, not under `method`, so they do not shift saved values.
+    stay at top level (same slots as v1.3.x). Content weights and other 1.4
+    extras are appended after the original 11 widgets with `advanced=True`.
     """
     if io is None:
         raise RuntimeError("ComfyUI V3 API is required for DynamicCombo.")
@@ -136,45 +136,43 @@ def _legacy_scene_widgets_after_method():
     ]
 
 
-def show_all_settings_combo():
-    """Toggle for fields added after v1.3.x. Nested after the original 11 slots."""
+def _advanced_scene_widgets():
+    """1.4 extras. Always present in widgets_values; hidden behind native Advanced."""
     if io is None:
         raise RuntimeError("ComfyUI V3 API is required.")
-    extras = [
-        io.Float.Input("delta_hue", default=1.0, min=0.0, max=10.0, step=0.05),
-        io.Float.Input("delta_sat", default=1.0, min=0.0, max=10.0, step=0.05),
-        io.Float.Input("delta_lum", default=1.0, min=0.0, max=10.0, step=0.05),
-        io.Float.Input("delta_edges", default=0.0, min=0.0, max=10.0, step=0.05),
-        io.Int.Input("kernel_size", default=0, min=0, step=2),
+    return [
+        io.Float.Input(
+            "delta_hue", default=1.0, min=0.0, max=10.0, step=0.05, advanced=True
+        ),
+        io.Float.Input(
+            "delta_sat", default=1.0, min=0.0, max=10.0, step=0.05, advanced=True
+        ),
+        io.Float.Input(
+            "delta_lum", default=1.0, min=0.0, max=10.0, step=0.05, advanced=True
+        ),
+        io.Float.Input(
+            "delta_edges", default=0.0, min=0.0, max=10.0, step=0.05, advanced=True
+        ),
+        io.Int.Input("kernel_size", default=0, min=0, step=2, advanced=True),
         io.String.Input(
             "prompt_template",
             default="",
             multiline=True,
             placeholder="Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot.",
+            advanced=True,
         ),
-        io.Boolean.Input("start_in_scene", default=False),
-        io.Int.Input("downscale", default=0, min=0, step=1),
+        io.Boolean.Input("start_in_scene", default=False, advanced=True),
+        io.Int.Input("downscale", default=0, min=0, step=1, advanced=True),
     ]
-    return io.DynamicCombo.Input(
-        "show_all_settings",
-        tooltip=(
-            "false: original node fields only. true: content weights, prompt "
-            "template, start-in-scene, and downscale. Original v1.3.x widgets "
-            "stay visible so saved graphs keep their widget positions."
-        ),
-        options=[
-            io.DynamicCombo.Option("false", []),
-            io.DynamicCombo.Option("true", extras),
-        ],
-    )
 
 
 def common_scene_inputs(*, include_split: bool):
     """Widget list after the `video` (or `image`/`video_info`) sockets.
 
     Order: original 11 widgets, then new fields. `content` DynamicCombo children
-    are empty so existing workflows keep positional `widgets_values`.
-    `show_all_settings` is appended after that prefix and only nests the new extras.
+    are empty so existing workflows keep positional `widgets_values`. Extra 1.4
+    fields are marked `advanced=True` so ComfyUI's native Advanced toggle hides
+    them without adding a custom combo that would shift saved values.
     """
     if io is None:
         raise RuntimeError("ComfyUI V3 API is required.")
@@ -184,5 +182,5 @@ def common_scene_inputs(*, include_split: bool):
     ]
     if include_split:
         inputs.append(split_clips_combo())
-    inputs.append(show_all_settings_combo())
+    inputs.extend(_advanced_scene_widgets())
     return inputs

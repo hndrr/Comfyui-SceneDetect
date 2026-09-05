@@ -196,46 +196,66 @@ def _is_truthy(value: Any) -> bool:
 
 
 def detector_optional_input_types() -> Dict[str, Any]:
+    """V1 extras. Marked advanced so they sit behind the native Advanced toggle."""
     return {
         "adaptive_threshold": (
             "FLOAT",
-            {"default": 3.0, "min": 0.0, "max": 1000.0, "step": 0.1},
+            {"default": 3.0, "min": 0.0, "max": 1000.0, "step": 0.1, "advanced": True},
         ),
-        "window_width": ("INT", {"default": 2, "min": 1, "step": 1}),
+        "window_width": ("INT", {"default": 2, "min": 1, "step": 1, "advanced": True}),
         "min_content_val": (
             "FLOAT",
-            {"default": 15.0, "min": 0.0, "max": 1000.0, "step": 0.1},
+            {"default": 15.0, "min": 0.0, "max": 1000.0, "step": 0.1, "advanced": True},
         ),
-        "delta_hue": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05}),
-        "delta_sat": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05}),
-        "delta_lum": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05}),
+        "delta_hue": (
+            "FLOAT",
+            {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
+        "delta_sat": (
+            "FLOAT",
+            {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
+        "delta_lum": (
+            "FLOAT",
+            {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
+        ),
         "delta_edges": (
             "FLOAT",
-            {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.05},
+            {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.05, "advanced": True},
         ),
-        "kernel_size": ("INT", {"default": 0, "min": 0, "step": 2}),
+        "kernel_size": ("INT", {"default": 0, "min": 0, "step": 2, "advanced": True}),
         "hash_threshold": (
             "FLOAT",
-            {"default": 0.395, "min": 0.0, "max": 1.0, "step": 0.001},
+            {"default": 0.395, "min": 0.0, "max": 1.0, "step": 0.001, "advanced": True},
         ),
-        "hash_size": ("INT", {"default": 16, "min": 1, "step": 1}),
-        "hash_lowpass": ("INT", {"default": 2, "min": 1, "step": 1}),
+        "hash_size": ("INT", {"default": 16, "min": 1, "step": 1, "advanced": True}),
+        "hash_lowpass": ("INT", {"default": 2, "min": 1, "step": 1, "advanced": True}),
         "hist_threshold": (
             "FLOAT",
-            {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.001},
+            {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.001, "advanced": True},
         ),
-        "hist_bins": ("INT", {"default": 256, "min": 2, "max": 256, "step": 1}),
-        "fade_bias": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.05}),
-        "add_final_scene": ("BOOLEAN", {"default": False}),
-        "threshold_method": (["floor", "ceiling"], {"default": "floor"}),
-        "start_in_scene": ("BOOLEAN", {"default": False}),
-        "downscale": ("INT", {"default": 0, "min": 0, "step": 1}),
+        "hist_bins": (
+            "INT",
+            {"default": 256, "min": 2, "max": 256, "step": 1, "advanced": True},
+        ),
+        "fade_bias": (
+            "FLOAT",
+            {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.05, "advanced": True},
+        ),
+        "add_final_scene": ("BOOLEAN", {"default": False, "advanced": True}),
+        "threshold_method": (
+            ["floor", "ceiling"],
+            {"default": "floor", "advanced": True},
+        ),
+        "start_in_scene": ("BOOLEAN", {"default": False, "advanced": True}),
+        "downscale": ("INT", {"default": 0, "min": 0, "step": 1, "advanced": True}),
         "prompt_template": (
             "STRING",
             {
                 "default": "",
                 "multiline": True,
                 "placeholder": DEFAULT_SCENE_PROMPT,
+                "advanced": True,
             },
         ),
     }
