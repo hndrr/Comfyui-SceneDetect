@@ -30,29 +30,17 @@ MASTER_WIDGET_PREFIX = [
     ("thumbs_dir", ""),
 ]
 
-CONTENT_WEIGHTS = [
-    ("delta_hue", 1.0),
-    ("delta_sat", 1.0),
-    ("delta_lum", 1.0),
-    ("delta_edges", 0.0),
-    ("kernel_size", 0),
-]
-
 SPLIT_CLIPS_ON = [
     ("split_clips", "true"),
     ("split_clips.split_reencode", True),
 ]
 
-PROMPT_AND_DECODE = [
-    ("prompt_template", ""),
-    ("start_in_scene", False),
-    ("downscale", 0),
+SHOW_ALL_OFF = [
+    ("show_all_settings", "false"),
 ]
 
-VIDEO_WIDGETS = (
-    MASTER_WIDGET_PREFIX + CONTENT_WEIGHTS + SPLIT_CLIPS_ON + PROMPT_AND_DECODE
-)
-LEGACY_WIDGETS = MASTER_WIDGET_PREFIX + CONTENT_WEIGHTS + PROMPT_AND_DECODE
+VIDEO_WIDGETS = MASTER_WIDGET_PREFIX + SPLIT_CLIPS_ON + SHOW_ALL_OFF
+LEGACY_WIDGETS = MASTER_WIDGET_PREFIX + SHOW_ALL_OFF
 
 VIDEO_OUTPUTS = [
     "images",
@@ -124,8 +112,14 @@ class SampleWorkflowTests(unittest.TestCase):
         self.assertTrue(
             all(not name.startswith("method.") for name, _value in VIDEO_WIDGETS)
         )
-        self.assertNotIn("show_all_settings", [name for name, _value in VIDEO_WIDGETS])
-        self.assertNotIn("show_all_settings", [name for name, _value in LEGACY_WIDGETS])
+        self.assertEqual(
+            [name for name, _value in VIDEO_WIDGETS[11:]],
+            ["split_clips", "split_clips.split_reencode", "show_all_settings"],
+        )
+        self.assertEqual(
+            [name for name, _value in LEGACY_WIDGETS[11:]],
+            ["show_all_settings"],
+        )
 
     def test_recommended_graph_matches_current_video_node(self) -> None:
         graph = _load_workflow("pyscene_workflow.json")

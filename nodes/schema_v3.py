@@ -136,22 +136,16 @@ def _legacy_scene_widgets_after_method():
     ]
 
 
-def _content_weight_widgets():
+def show_all_settings_combo():
+    """Toggle for fields added after v1.3.x. Nested after the original 11 slots."""
     if io is None:
         raise RuntimeError("ComfyUI V3 API is required.")
-    return [
+    extras = [
         io.Float.Input("delta_hue", default=1.0, min=0.0, max=10.0, step=0.05),
         io.Float.Input("delta_sat", default=1.0, min=0.0, max=10.0, step=0.05),
         io.Float.Input("delta_lum", default=1.0, min=0.0, max=10.0, step=0.05),
         io.Float.Input("delta_edges", default=0.0, min=0.0, max=10.0, step=0.05),
         io.Int.Input("kernel_size", default=0, min=0, step=2),
-    ]
-
-
-def _prompt_and_decode_widgets():
-    if io is None:
-        raise RuntimeError("ComfyUI V3 API is required.")
-    return [
         io.String.Input(
             "prompt_template",
             default="",
@@ -161,6 +155,18 @@ def _prompt_and_decode_widgets():
         io.Boolean.Input("start_in_scene", default=False),
         io.Int.Input("downscale", default=0, min=0, step=1),
     ]
+    return io.DynamicCombo.Input(
+        "show_all_settings",
+        tooltip=(
+            "false: original node fields only. true: content weights, prompt "
+            "template, start-in-scene, and downscale. Original v1.3.x widgets "
+            "stay visible so saved graphs keep their widget positions."
+        ),
+        options=[
+            io.DynamicCombo.Option("false", []),
+            io.DynamicCombo.Option("true", extras),
+        ],
+    )
 
 
 def common_scene_inputs(*, include_split: bool):
@@ -168,15 +174,15 @@ def common_scene_inputs(*, include_split: bool):
 
     Order: original 11 widgets, then new fields. `content` DynamicCombo children
     are empty so existing workflows keep positional `widgets_values`.
+    `show_all_settings` is appended after that prefix and only nests the new extras.
     """
     if io is None:
         raise RuntimeError("ComfyUI V3 API is required.")
     inputs = [
         method_dynamic_combo(),
         *_legacy_scene_widgets_after_method(),
-        *_content_weight_widgets(),
     ]
     if include_split:
         inputs.append(split_clips_combo())
-    inputs.extend(_prompt_and_decode_widgets())
+    inputs.append(show_all_settings_combo())
     return inputs
