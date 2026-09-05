@@ -367,42 +367,25 @@ class VideoOpsTests(unittest.TestCase):
         self.assertTrue(luma_only)
         self.assertEqual(extra, {"hash_threshold": 0.4, "hash_size": 8, "hash_lowpass": 2})
 
-    def test_unpack_toggle_combo_expands_nested_node_settings(self):
+    def test_unpack_toggle_combo_expands_nested_split_clips(self):
         enabled, extras = unpack_toggle_combo(
             {
-                "show_all_settings": "true",
-                "max_width": 640,
-                "limit_scenes": 4,
-                "write_thumbs": True,
-                "thumbs_dir": "scene_thumbs",
-                "prompt_template": "Scene {index}",
-                "start_in_scene": True,
-                "downscale": 2,
+                "split_clips": "true",
+                "split_reencode": True,
             },
-            "show_all_settings",
+            "split_clips",
         )
 
         self.assertTrue(enabled)
-        self.assertEqual(
-            extras,
-            {
-                "max_width": 640,
-                "limit_scenes": 4,
-                "write_thumbs": True,
-                "thumbs_dir": "scene_thumbs",
-                "prompt_template": "Scene {index}",
-                "start_in_scene": True,
-                "downscale": 2,
-            },
-        )
+        self.assertEqual(extras, {"split_reencode": True})
 
     def test_unpack_toggle_combo_false_has_no_nested_fields(self):
-        enabled, extras = unpack_toggle_combo("false", "show_all_settings")
+        enabled, extras = unpack_toggle_combo("false", "split_clips")
 
         self.assertFalse(enabled)
         self.assertEqual(extras, {})
 
-    def test_unpack_method_input_drops_v1_show_all_settings_flag(self):
+    def test_unpack_method_input_drops_unknown_ui_flags(self):
         method, threshold, luma_only, extra = unpack_method_input(
             "content",
             extra={"show_all_settings": False, "delta_hue": 2.0},

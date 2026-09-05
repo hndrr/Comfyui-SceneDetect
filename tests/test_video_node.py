@@ -168,16 +168,56 @@ class VideoNodeTests(unittest.TestCase):
         self.assertEqual(per_scene_prompt_list, ["Scene 1/2", "Scene 2/2"])
         self.assertEqual(scene_videos, [])
 
-    def test_v1_input_types_include_show_all_settings(self):
+    def test_schema_and_v1_inputs_keep_master_widget_prefix(self):
+        schema = importlib.import_module(
+            "comfyui_scenedetect_test_package.nodes.schema_v3"
+        )
+        self.assertEqual(
+            list(schema.LEGACY_WIDGET_NAMES),
+            [
+                "method",
+                "threshold",
+                "min_scene_len_sec",
+                "min_scene_len_frames",
+                "luma_only",
+                "representative",
+                "max_width",
+                "max_height",
+                "limit_scenes",
+                "write_thumbs",
+                "thumbs_dir",
+            ],
+        )
         types = video_node.PySceneDetectVideo.INPUT_TYPES()
-        self.assertEqual(types["optional"]["show_all_settings"][0], "BOOLEAN")
+        self.assertEqual(
+            list(types["required"]),
+            [
+                "video",
+                "method",
+                "threshold",
+                "min_scene_len_sec",
+                "min_scene_len_frames",
+                "luma_only",
+            ],
+        )
+        self.assertEqual(
+            list(types["optional"])[:6],
+            [
+                "representative",
+                "max_width",
+                "max_height",
+                "limit_scenes",
+                "write_thumbs",
+                "thumbs_dir",
+            ],
+        )
+        self.assertNotIn("show_all_settings", types["required"])
+        self.assertNotIn("show_all_settings", types["optional"])
         self.assertEqual(
             types["required"]["method"][0],
             ["content", "adaptive", "threshold", "hash", "histogram"],
         )
-        self.assertEqual(
-            types["optional"]["split_reencode"][1]["default"], True
-        )
+        self.assertEqual(types["optional"]["split_reencode"][1]["default"], True)
 
     def test_run_accepts_dynamic_combo_method_dict(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -208,7 +248,7 @@ class VideoNodeTests(unittest.TestCase):
         self.assertEqual(json.loads(scenes_json)["threshold"], 10.0)
         self.assertEqual(scene_videos, [])
 
-    def test_run_accepts_show_all_settings_node_extras(self):
+    def test_run_accepts_resize_and_limit_scenes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)

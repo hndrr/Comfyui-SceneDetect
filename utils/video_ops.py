@@ -168,6 +168,7 @@ def unpack_method_input(
 ) -> Tuple[str, float, bool, Dict[str, Any]]:
     """Flatten a V3 DynamicCombo `method` dict, or pass through a plain method name."""
     extras = dict(extra or {})
+    # Ignore leftover UI flags from earlier 1.4 drafts; they are not detector params.
     extras.pop("show_all_settings", None)
     if isinstance(method, dict):
         selected = method.get("method", "content")

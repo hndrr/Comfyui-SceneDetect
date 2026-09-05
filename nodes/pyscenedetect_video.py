@@ -23,7 +23,7 @@ from ..utils.video_ops import (
     unpack_toggle_combo,
     video_source_path,
 )
-from .schema_v3 import _NODE_BASE, common_scene_inputs, io, method_dynamic_combo
+from .schema_v3 import _NODE_BASE, common_scene_inputs, io
 
 
 def _resolve_output_path(output_root: str, relative_path: str) -> str:
@@ -64,7 +64,6 @@ class PySceneDetectVideo(_NODE_BASE):
         @classmethod
         def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
             optional = {
-                "show_all_settings": ("BOOLEAN", {"default": False}),
                 "representative": (["start", "middle", "end"], {"default": "start"}),
                 "max_width": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "max_height": ("INT", {"default": 0, "min": 0, "step": 1}),
@@ -112,7 +111,6 @@ class PySceneDetectVideo(_NODE_BASE):
             category="Video/PySceneDetect",
             inputs=[
                 io.Video.Input("video"),
-                method_dynamic_combo(),
                 *common_scene_inputs(include_split=True),
             ],
             outputs=[
@@ -127,13 +125,9 @@ class PySceneDetectVideo(_NODE_BASE):
 
     @classmethod
     def execute(cls, video, method, **kwargs):
-        _, extra_ui = unpack_toggle_combo(
-            kwargs.pop("show_all_settings", False), "show_all_settings"
-        )
         split_clips, split_extra = unpack_toggle_combo(
             kwargs.pop("split_clips", False), "split_clips"
         )
-        kwargs.update(extra_ui)
         kwargs.update(split_extra)
         method, threshold, luma_only, detector_options = unpack_method_input(
             method,
