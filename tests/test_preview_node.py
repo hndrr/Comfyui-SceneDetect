@@ -5,13 +5,11 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def _install_folder_paths_stub(output_root: str, temp_root: str):
-    module = sys.modules.get("folder_paths")
-    if module is None:
-        module = types.ModuleType("folder_paths")
-        sys.modules["folder_paths"] = module
+    module = types.ModuleType("folder_paths")
 
     def is_within_directory(root: str, path: str) -> bool:
         root = os.path.realpath(root)
@@ -28,7 +26,7 @@ def _install_folder_paths_stub(output_root: str, temp_root: str):
 
 
 def _load_preview_node(output_root: str, temp_root: str):
-    _install_folder_paths_stub(output_root, temp_root)
+    folder_paths_stub = _install_folder_paths_stub(output_root, temp_root)
     repository_root = Path(__file__).resolve().parents[1]
     package_name = "comfyui_scenedetect_preview_test_package"
 
@@ -42,7 +40,8 @@ def _load_preview_node(output_root: str, temp_root: str):
     sys.modules[nodes_package_name] = nodes_package
 
     sys.modules.pop(f"{nodes_package_name}.pyscenedetect_preview", None)
-    return importlib.import_module(f"{nodes_package_name}.pyscenedetect_preview")
+    with patch.dict(sys.modules, {"folder_paths": folder_paths_stub}):
+        return importlib.import_module(f"{nodes_package_name}.pyscenedetect_preview")
 
 
 def _write_dummy_video(path: Path) -> None:
@@ -173,6 +172,57 @@ class PreviewNodeTests(unittest.TestCase):
             self.assertTrue(copied.is_file())
             self.assertEqual(copied.read_bytes(), b"from-save-to")
             self.assertEqual(list(output_root.rglob("*")), [])
+
+    def test_folder_paths_stub_is_isolated_to_preview_import(self):
+        sentinel = types.ModuleType("folder_paths")
+        sentinel.marker = "original"
+        previous = sys.modules.get("folder_paths")
+
+        def restore_folder_paths():
+            if previous is None:
+                sys.modules.pop("folder_paths", None)
+            else:
+                sys.modules["folder_paths"] = previous
+
+        sys.modules["folder_paths"] = sentinel
+        self.addCleanup(restore_folder_paths)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir) / "output"
+            temp_root = Path(tmpdir) / "temp"
+            output_root.mkdir()
+            temp_root.mkdir()
+            preview_node = _load_preview_node(str(output_root), str(temp_root))
+
+            self.assertIs(sys.modules["folder_paths"], sentinel)
+            self.assertEqual(sys.modules["folder_paths"].marker, "original")
+            self.assertEqual(
+                preview_node.folder_paths.get_temp_directory(), str(temp_root)
+            )
+
+    def test_preview_node_exposes_v3_schema_and_legacy_inputs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir) / "output"
+            temp_root = Path(tmpdir) / "temp"
+            output_root.mkdir()
+            temp_root.mkdir()
+            preview_node = _load_preview_node(str(output_root), str(temp_root))
+            cls = preview_node.PySceneDetectPreviewVideos
+            self.assertTrue(callable(cls.define_schema))
+            self.assertTrue(callable(cls.execute))
+            with self.assertRaises(RuntimeError):
+                cls.define_schema()
+            types = cls.INPUT_TYPES()
+            self.assertEqual(list(types["required"]), ["video"])
+            self.assertTrue(cls.OUTPUT_NODE)
+            self.assertTrue(cls.INPUT_IS_LIST)
+
+    def test_v3_entrypoint_registers_preview_videos(self):
+        init_text = (Path(__file__).resolve().parents[1] / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("PySceneDetectPreviewVideos", init_text)
+        self.assertIn("get_node_list", init_text)
 
     def test_empty_list_returns_empty_preview(self):
         with tempfile.TemporaryDirectory() as tmpdir:

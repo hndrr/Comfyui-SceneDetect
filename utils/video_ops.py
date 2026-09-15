@@ -4,6 +4,7 @@ from dataclasses import dataclass, fields
 from fractions import Fraction
 import os
 import re
+import shutil
 import tempfile
 from typing import Any, Dict, List, Tuple
 import cv2
@@ -555,9 +556,34 @@ def split_scene_clips(
     raise RuntimeError(last_error)
 
 
-def load_video_from_file(path: str):
-    from comfy_api.latest import InputImpl
+class FileBackedVideo:
+    """Minimal VIDEO duck type when `comfy_api.latest.InputImpl` is unavailable."""
 
+    def __init__(self, path: str):
+        self._path = os.fspath(path)
+
+    @property
+    def path(self) -> str:
+        return self._path
+
+    def get_stream_source(self) -> str:
+        return self._path
+
+    def save_to(self, dest_path: str, **_kwargs) -> None:
+        dest = os.fspath(dest_path)
+        if os.path.realpath(dest) == os.path.realpath(self._path):
+            return
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        shutil.copy2(self._path, dest)
+
+
+def load_video_from_file(path: str):
+    try:
+        from comfy_api.latest import InputImpl
+    except ImportError:
+        return FileBackedVideo(path)
     return InputImpl.VideoFromFile(path)
 
 

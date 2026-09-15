@@ -10,10 +10,15 @@ try:
 
     class SceneDetectExtension(ComfyExtension):
         async def get_node_list(self):
+            from .nodes.pyscenedetect_preview import PySceneDetectPreviewVideos
             from .nodes.pyscenedetect_to_images import PySceneDetectToImages
             from .nodes.pyscenedetect_video import PySceneDetectVideo
 
-            return [PySceneDetectVideo, PySceneDetectToImages]
+            return [
+                PySceneDetectVideo,
+                PySceneDetectToImages,
+                PySceneDetectPreviewVideos,
+            ]
 
     async def comfy_entrypoint():
         return SceneDetectExtension()

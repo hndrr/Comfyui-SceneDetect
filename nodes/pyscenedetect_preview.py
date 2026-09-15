@@ -6,6 +6,8 @@ import uuid
 
 import folder_paths
 
+from .schema_v3 import _NODE_BASE, io
+
 
 def _as_video_list(video: Any) -> List[Any]:
     if video is None:
@@ -83,29 +85,57 @@ def preview_entry_for_video(video: Any) -> Dict[str, Any]:
     return entry
 
 
-class PySceneDetectPreviewVideos:
-    @classmethod
-    def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
-        return {
-            "required": {
-                "video": (
-                    "VIDEO",
-                    {
-                        "tooltip": "Connect a VIDEO or the scene_videos list from PySceneDetect: Video → Scenes. Files stay in temp; nothing is written to output.",
-                    },
-                ),
-            }
-        }
+_PREVIEW_TOOLTIP = (
+    "Connect a VIDEO or the scene_videos list from PySceneDetect: Video → Scenes. "
+    "Files stay in temp; nothing is written to output."
+)
+_PREVIEW_DESCRIPTION = (
+    "Preview VIDEO clips without saving them to the output directory. "
+    "Connect `scene_videos` from PySceneDetect: Video → Scenes after enabling split_clips."
+)
 
-    RETURN_TYPES = ()
-    FUNCTION = "preview"
-    CATEGORY = "Video/PySceneDetect"
-    OUTPUT_NODE = True
-    INPUT_IS_LIST = True
-    DESCRIPTION = (
-        "Preview VIDEO clips without saving them to the output directory. "
-        "Connect `scene_videos` from PySceneDetect: Video → Scenes after enabling split_clips."
-    )
+
+class PySceneDetectPreviewVideos(_NODE_BASE):
+    # V1 attributes only when comfy_api is missing. Overriding INPUT_TYPES /
+    # FUNCTION on io.ComfyNode hides the V3 schema and skips execute().
+    if io is None:
+        FUNCTION = "preview"
+        RETURN_TYPES = ()
+        CATEGORY = "Video/PySceneDetect"
+        OUTPUT_NODE = True
+        INPUT_IS_LIST = True
+        DESCRIPTION = _PREVIEW_DESCRIPTION
+
+        @classmethod
+        def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+            return {
+                "required": {
+                    "video": (
+                        "VIDEO",
+                        {"tooltip": _PREVIEW_TOOLTIP},
+                    ),
+                }
+            }
+
+    @classmethod
+    def define_schema(cls):
+        if io is None:
+            raise RuntimeError("ComfyUI V3 API is required.")
+        return io.Schema(
+            node_id="PySceneDetectPreviewVideos",
+            display_name="PySceneDetect: Preview Videos",
+            category="Video/PySceneDetect",
+            description=_PREVIEW_DESCRIPTION,
+            inputs=[io.Video.Input("video", tooltip=_PREVIEW_TOOLTIP)],
+            outputs=[],
+            is_output_node=True,
+            is_input_list=True,
+        )
+
+    @classmethod
+    def execute(cls, video):
+        payload = cls().preview(video)
+        return io.NodeOutput(ui=payload["ui"])
 
     def preview(self, video: Any):
         results = [

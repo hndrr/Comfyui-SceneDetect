@@ -6,7 +6,6 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -282,39 +281,45 @@ class VideoNodeTests(unittest.TestCase):
             video_path = Path(tmpdir) / "hard-cut.avi"
             _write_hard_cut(video_path)
             folder_paths = sys.modules["folder_paths"]
+            original_output = folder_paths.get_output_directory
+            original_temp = folder_paths.get_temp_directory
+            self.addCleanup(
+                setattr, folder_paths, "get_output_directory", original_output
+            )
+            self.addCleanup(setattr, folder_paths, "get_temp_directory", original_temp)
             folder_paths.get_output_directory = lambda: str(output_root)
             folder_paths.get_temp_directory = lambda: str(temp_root)
 
-            with patch.object(video_node, "load_video_from_file", side_effect=lambda path: path):
-                (
-                    _images,
-                    scenes_json,
-                    count,
-                    _all_scenes_text,
-                    _per_scene_prompt_list,
-                    scene_videos,
-                ) = video_node.PySceneDetectVideo().run(
-                    FakeVideo(video_path),
-                    method="content",
-                    threshold=10.0,
-                    min_scene_len_sec=0.0,
-                    min_scene_len_frames=1,
-                    luma_only=False,
-                    split_clips=True,
-                    split_reencode=True,
-                )
+            (
+                _images,
+                scenes_json,
+                count,
+                _all_scenes_text,
+                _per_scene_prompt_list,
+                scene_videos,
+            ) = video_node.PySceneDetectVideo().run(
+                FakeVideo(video_path),
+                method="content",
+                threshold=10.0,
+                min_scene_len_sec=0.0,
+                min_scene_len_frames=1,
+                luma_only=False,
+                split_clips=True,
+                split_reencode=True,
+            )
 
             scenes = json.loads(scenes_json)["scenes"]
             self.assertEqual(count, 2)
             self.assertEqual(len(scene_videos), 2)
             for scene, clip in zip(scenes, scene_videos):
-                clip_path = Path(clip)
+                clip_path = Path(clip.get_stream_source())
                 self.assertTrue(clip_path.is_file())
-                self.assertEqual(scene["clip_path"], clip)
+                self.assertEqual(scene["clip_path"], str(clip_path))
                 self.assertTrue(clip_path.resolve().is_relative_to(temp_root.resolve()))
                 self.assertFalse(
                     clip_path.resolve().is_relative_to(output_root.resolve())
                 )
+                self.assertEqual(clip.scene_duration_sec, scene["duration_sec"])
 
 
 if __name__ == "__main__":

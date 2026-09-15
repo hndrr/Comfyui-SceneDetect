@@ -18,11 +18,13 @@ from scenedetect.detectors import (
 
 from utils.video_ops import (
     DetectorSettings,
+    FileBackedVideo,
     TensorVideoStream,
     choose_detector,
     detect_scenes,
     detect_scenes_from_video,
     format_scenes_for_llm,
+    load_video_from_file,
     normalized_kernel_size,
     read_video_frames,
     sanitize_clip_name,
@@ -425,6 +427,27 @@ class VideoOpsTests(unittest.TestCase):
         self.assertIs(stamped, clip)
         self.assertEqual(clip.scene_duration_sec, 1.5)
         self.assertIs(stamp_scene_duration("path", 1.0), "path")
+
+    def test_load_video_from_file_falls_back_without_comfy_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "clip.mp4"
+            path.write_bytes(b"clip")
+            with patch.dict("sys.modules", {"comfy_api.latest": None}):
+                clip = load_video_from_file(str(path))
+
+        self.assertIsInstance(clip, FileBackedVideo)
+        self.assertEqual(clip.get_stream_source(), str(path))
+        self.assertEqual(clip.path, str(path))
+
+    def test_file_backed_video_save_to_copies_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "src.mp4"
+            dest = Path(tmpdir) / "nested" / "dest.mp4"
+            src.write_bytes(b"clip-bytes")
+            FileBackedVideo(str(src)).save_to(str(dest))
+            self.assertEqual(dest.read_bytes(), b"clip-bytes")
+            FileBackedVideo(str(src)).save_to(str(src))
+            self.assertEqual(src.read_bytes(), b"clip-bytes")
 
 
 if __name__ == "__main__":
