@@ -369,14 +369,18 @@ function showPreviewScene(node, index) {
 
   stage.appendChild(incoming);
   incoming.src = nextUrl;
-  waitForStartFrame(incoming).then(() => {
-    if (token !== node._psdPreviewLoadToken) {
-      unloadVideo(incoming);
-      incoming.remove();
-      return;
-    }
-    reveal();
-  });
+  waitForStartFrame(incoming)
+    .then(() => {
+      if (token !== node._psdPreviewLoadToken) {
+        unloadVideo(incoming);
+        incoming.remove();
+        return;
+      }
+      reveal();
+    })
+    .catch(() => {
+      // Broken clip: the error listener already surfaces the element.
+    });
 }
 
 function stopWidgetEvent(event) {
