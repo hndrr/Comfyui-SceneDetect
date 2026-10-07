@@ -175,7 +175,7 @@ def main():
         body = release_body(github, repository, version, sha, fallback)
         write_outputs(os.environ["GITHUB_OUTPUT"], {"version": version, "body": body})
         return
-    registry = API("https://api.comfy.org", os.environ["REGISTRY_ACCESS_TOKEN"], header="X-API-Key")
+    registry = API("https://api.comfy.org", os.environ["REGISTRY_ACCESS_TOKEN"])
     publisher, node_id = config["tool"]["comfy"]["PublisherId"], config["project"]["name"]
     if arguments.mode == "backfill":
         history = json.loads(Path(".github/release-history.json").read_text(encoding="utf-8"))
