@@ -5,23 +5,23 @@
   "releases": {
     "1.0.0": {
       "sha": "bdb743d4b77e07ed0d22b2422dcbe47c3744665e",
-      "body": "## Changes\n\n- Initial ComfyUI scene detection node using PySceneDetect and VideoHelperSuite video input.\n- Support content, adaptive, and threshold detection with configurable minimum scene length.\n- Return one representative image per scene, scene metadata as JSON, and the scene count.\n- Support representative-frame selection, resizing, and optional JPEG thumbnails."
+      "body": "- Add scene detection for VideoHelperSuite videos.\n- Support content, adaptive, and threshold detection.\n- Output representative images, scene metadata, and scene counts."
     },
     "1.0.1": {
       "sha": "3e5bf74f09d76b854b39cca4cc636c547e48f579",
-      "body": "## Fixes\n\n- Fix threshold detection by removing an unsupported luma-only argument.\n- Release video resources when scene detection completes or raises an error.\n- Correct the documented image tensor layout and clarify which detectors support luma-only detection."
+      "body": "- Fix threshold detection and video resource cleanup."
     },
     "1.1.0": {
       "sha": "f576510cb6afe2ac2f3326504fb7cc927cff5644",
-      "body": "## Changes\n\n- Upgrade to PySceneDetect 0.7 and headless OpenCV dependencies.\n- Use the official scenedetect-headless distribution to avoid a dependency on this node's own Registry package name.\n\n## Fixes\n\n- Improve compatibility with PySceneDetect 0.7 detector interfaces."
+      "body": "- Update to PySceneDetect 0.7 and headless OpenCV."
     },
     "1.2.0": {
       "sha": "42c66e466298cc3bf42c480848f4055386918348",
-      "body": "## Changes\n\n- Add the recommended Video → Scenes node with ComfyUI's built-in VIDEO input.\n- Stream source video without allocating a full IMAGE batch, reducing memory use for long and high-resolution videos.\n- Keep the existing VHS node available as Legacy VHS so older workflows continue to load.\n- Add workflow examples for built-in VIDEO and Legacy VHS inputs.\n\n## Fixes\n\n- Process legacy image batches one frame at a time to reduce temporary memory allocations."
+      "body": "- Add the Video → Scenes node with ComfyUI's native VIDEO input.\n- Reduce memory use for long and high-resolution videos.\n- Keep existing VHS workflows compatible."
     },
     "1.2.2": {
       "sha": "9ba7a4d0521659ee5ee68e1aeb4a33edb0e9e320",
-      "body": "## Changes\n\n- Add hash and histogram scene detection methods with independent thresholds.\n- Add detection downscaling while keeping representative images at the requested output resolution.\n- Add default/custom detector settings for adaptive detection, content weights, and fade handling.\n- Show only settings relevant to the selected detector method.\n- Preserve Legacy VHS widget positions so existing workflows continue to load.\n- Automate Registry patch-version preparation and publishing.\n\n## Fixes\n\n- Return one scene and a representative image when no cuts are detected, including trimmed VIDEO inputs.\n\nThis release includes the changes previously prepared as 1.2.1. The removed 1.2.1 version is consolidated into 1.2.2."
+      "body": "- Add hash and histogram detection, detection downscaling, and detector-specific settings.\n- Keep existing Legacy VHS workflows compatible.\n- Fix empty results for videos with no scene cuts, including trimmed inputs."
     }
   }
 }

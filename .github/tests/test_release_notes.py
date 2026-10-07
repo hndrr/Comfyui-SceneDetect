@@ -178,7 +178,7 @@ class ReleaseNotesTests(unittest.TestCase):
             notes.backfill(self.github, registry, REPO, "hndr", "scenedetect", history["releases"], history["superseded"])
         self.assertEqual(set(self.github.releases), {f"v{v}" for v in history["releases"]})
         self.assertNotIn("v1.2.1", self.github.releases)
-        self.assertIn("1.2.1", self.github.releases["v1.2.2"]["body"])
+        self.assertEqual(history["superseded"]["1.2.1"], "1.2.2")
         self.assertEqual(self.github.releases["v1.2.2"]["make_latest"], "true")
         for item in registry.versions:
             if item["version"] in history["releases"]:
