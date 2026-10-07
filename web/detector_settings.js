@@ -7,7 +7,7 @@ const detailNames = new Set([
 ]);
 const originalSizes = new WeakMap();
 
-function updateDetails(node) {
+function updateDetails(node, preserveSize = false) {
     const custom = node.widgets?.find(w => w.name === "detector_settings")?.value === "custom";
     for (const widget of node.widgets ?? []) {
         if (!detailNames.has(widget.name)) continue;
@@ -23,7 +23,10 @@ function updateDetails(node) {
             widget.computeSize = () => [0, -4];
         }
     }
-    node.setSize(node.computeSize());
+    const size = node.computeSize();
+    size[0] = Math.max(node.size[0], size[0]);
+    if (preserveSize) size[1] = Math.max(node.size[1], size[1]);
+    node.setSize(size);
     node.setDirtyCanvas(true, true);
 }
 
@@ -46,7 +49,7 @@ app.registerExtension({
                     };
                     control._sceneDetectWrapped = true;
                 }
-                updateDetails(this);
+                updateDetails(this, hook === "onConfigure");
                 return result;
             };
         }
