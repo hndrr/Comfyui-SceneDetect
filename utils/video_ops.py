@@ -225,7 +225,7 @@ def detect_scenes_from_video(
             duration=duration if duration > 0 else None,
             show_progress=False,
         )
-        scene_list = manager.get_scene_list()
+        scene_list = manager.get_scene_list(start_in_scene=True)
     finally:
         # Ensure file-backed streams are released even if detection raises.
         release = getattr(video, "release", None)
