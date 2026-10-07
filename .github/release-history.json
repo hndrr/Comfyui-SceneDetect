@@ -1,0 +1,27 @@
+{
+  "superseded": {
+    "1.2.1": "1.2.2"
+  },
+  "releases": {
+    "1.0.0": {
+      "sha": "bdb743d4b77e07ed0d22b2422dcbe47c3744665e",
+      "body": "- Add scene detection for VideoHelperSuite videos.\n- Support content, adaptive, and threshold detection.\n- Output representative images, scene metadata, and scene counts."
+    },
+    "1.0.1": {
+      "sha": "3e5bf74f09d76b854b39cca4cc636c547e48f579",
+      "body": "- Fix threshold detection and video resource cleanup."
+    },
+    "1.1.0": {
+      "sha": "f576510cb6afe2ac2f3326504fb7cc927cff5644",
+      "body": "- Update to PySceneDetect 0.7 and headless OpenCV."
+    },
+    "1.2.0": {
+      "sha": "42c66e466298cc3bf42c480848f4055386918348",
+      "body": "- Add the Video → Scenes node with ComfyUI's native VIDEO input.\n- Reduce memory use for long and high-resolution videos.\n- Keep existing VHS workflows compatible."
+    },
+    "1.2.2": {
+      "sha": "9ba7a4d0521659ee5ee68e1aeb4a33edb0e9e320",
+      "body": "- Add hash and histogram detectors and detection downscaling.\n- Add custom settings for adaptive detection, color and edge weights, and fades.\n- Fix empty results for videos with no scene cuts, including trimmed inputs."
+    }
+  }
+}

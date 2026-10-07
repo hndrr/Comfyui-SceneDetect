@@ -183,6 +183,10 @@ The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDet
 - PySceneDetect version mismatch: Reinstall within the range defined in `requirements.txt`.
 - Empty or 1x1 black output: Indicates the input failed to decode. Validate the source frames and configuration.
 
+## [Releases](https://github.com/hndrr/Comfyui-SceneDetect/releases)
+
+See the release history for version-specific changes and fixes.
+
 ## License
 
 This project is licensed under the MIT License. See `LICENSE` for the complete text. Files that specify a different license are governed by the terms noted within those files.
