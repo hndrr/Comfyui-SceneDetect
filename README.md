@@ -8,7 +8,7 @@ Every push or PR merge to `master` triggers publishing to Comfy Registry. Normal
 
 Publishing runs are queued and run one at a time. Closely spaced merges can be included in one release of the latest `master`; later runs skip changes already included in that release. Each prepared release records its source commit, including explicitly versioned releases. Release commits do not trigger another run, and GitHub write credentials are removed before the publish action runs.
 
-To retry a failed publication, select `master` and run **Publish to Comfy registry** manually from GitHub Actions. Manual runs publish the current version without incrementing it. The workflow uses the existing `REGISTRY_ACCESS_TOKEN` secret and needs permission to push version commits to `master`.
+To retry a failed publication, open **Publish to Comfy registry** in GitHub Actions, choose **Run workflow**, and select `master`. Use **Run workflow** rather than **Re-run**: once a release has been prepared, **Re-run** can skip publishing and finish successfully without retrying the failed publication. Manual runs publish the current version without incrementing it. The workflow uses the existing `REGISTRY_ACCESS_TOKEN` secret and needs permission to push version commits to `master`.
 
 ## Features
 
