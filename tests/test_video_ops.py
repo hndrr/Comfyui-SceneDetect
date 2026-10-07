@@ -12,6 +12,7 @@ from scenedetect import FrameTimecode
 from utils.video_ops import (
     DetectorSettings,
     TensorVideoStream,
+    choose_detector,
     detect_scenes,
     detect_scenes_from_video,
     read_video_frames,
@@ -20,6 +21,43 @@ from utils.video_ops import (
 
 
 class VideoOpsTests(unittest.TestCase):
+    def test_custom_kernel_sizes_match_documented_automatic_range(self):
+        for method in ("content", "adaptive"):
+            for size, expected in ((0, None), (1, None), (2, None), (3, 3), (4, 5), (5, 5)):
+                with self.subTest(method=method, size=size):
+                    detector = choose_detector(
+                        method, 27.0, 1, False,
+                        settings=DetectorSettings(kernel_size=size),
+                    )
+                    if expected is None:
+                        self.assertIsNone(detector._kernel)
+                    else:
+                        self.assertEqual(detector._kernel.shape, (expected, expected))
+
+    def test_zero_custom_weights_require_luma_only(self):
+        settings = DetectorSettings(
+            delta_hue=0.0, delta_sat=0.0, delta_lum=0.0, delta_edges=0.0,
+        )
+        frames = torch.zeros((40, 16, 16, 3))
+        frames[20:] = 1.0
+        for method in ("content", "adaptive"):
+            with self.subTest(method=method):
+                with self.assertRaisesRegex(ValueError, "At least one content weight"):
+                    detect_scenes_from_video(
+                        TensorVideoStream(frames, 10.0), method, 27.0, 0.0, 1, False,
+                        settings=settings,
+                    )
+                scenes, _ = detect_scenes_from_video(
+                    TensorVideoStream(frames, 10.0), method, 27.0, 0.0, 1, True,
+                    settings=settings,
+                )
+                self.assertEqual(
+                    [(start.frame_num, end.frame_num) for start, end in scenes],
+                    [(0, 20), (20, 40)],
+                )
+        for method in ("threshold", "hash", "histogram"):
+            choose_detector(method, 27.0, 1, False, settings=settings)
+
     def test_tensor_video_stream_reads_normalized_bhwc_as_bgr(self):
         frames = torch.zeros((2, 8, 12, 3), dtype=torch.float32)
         frames[0, :, :, 0] = 1.0

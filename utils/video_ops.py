@@ -139,17 +139,26 @@ def choose_detector(
     hist_threshold: float = 0.05,
     settings: DetectorSettings | None = None,
 ):
+    """Build a detector, applying detailed settings only when explicitly supplied."""
     options = {}
     if settings is not None:
         if method in ("content", "adaptive"):
             kernel_size = int(settings.kernel_size)
-            kernel_size = kernel_size + 1 if kernel_size % 2 == 0 else kernel_size
+            if kernel_size < 3:
+                kernel_size = None
+            elif kernel_size % 2 == 0:
+                kernel_size += 1
+            weights = ContentDetector.Components(
+                settings.delta_hue, settings.delta_sat,
+                settings.delta_lum, settings.delta_edges,
+            )
+            if not luma_only and sum(abs(weight) for weight in weights) == 0:
+                raise ValueError(
+                    "At least one content weight must be non-zero when luma_only is false."
+                )
             options = {
-                "weights": ContentDetector.Components(
-                    settings.delta_hue, settings.delta_sat,
-                    settings.delta_lum, settings.delta_edges,
-                ),
-                "kernel_size": kernel_size if kernel_size >= 3 else None,
+                "weights": weights,
+                "kernel_size": kernel_size,
             }
         if method == "adaptive":
             options.update(
