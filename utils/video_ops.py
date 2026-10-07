@@ -1,5 +1,6 @@
 from __future__ import annotations
 from contextlib import contextmanager
+from dataclasses import dataclass
 from fractions import Fraction
 import os
 import tempfile
@@ -8,8 +9,29 @@ import cv2
 import numpy as np
 import torch
 from scenedetect import FrameTimecode, SceneManager, open_video
-from scenedetect.detectors import ContentDetector, AdaptiveDetector, ThresholdDetector
+from scenedetect.detectors import (
+    ContentDetector,
+    AdaptiveDetector,
+    ThresholdDetector,
+    HashDetector,
+    HistogramDetector,
+)
 from scenedetect.video_stream import VideoStream
+
+
+@dataclass(frozen=True)
+class DetectorSettings:
+    adaptive_threshold: float = 3.0
+    window_width: int = 2
+    min_content_val: float = 15.0
+    delta_hue: float = 1.0
+    delta_sat: float = 1.0
+    delta_lum: float = 1.0
+    delta_edges: float = 0.0
+    kernel_size: int = 0
+    fade_bias: float = 0.0
+    add_final_scene: bool = False
+    threshold_method: str = "floor"
 
 
 class TensorVideoStream(VideoStream):
@@ -109,15 +131,53 @@ class TensorVideoStream(VideoStream):
 
 
 def choose_detector(
-    method: str, threshold: float, min_scene_len: int | float, luma_only: bool
+    method: str,
+    threshold: float,
+    min_scene_len: int | float,
+    luma_only: bool,
+    hash_threshold: float = 0.395,
+    hist_threshold: float = 0.05,
+    settings: DetectorSettings | None = None,
 ):
+    options = {}
+    if settings is not None:
+        if method in ("content", "adaptive"):
+            kernel_size = int(settings.kernel_size)
+            kernel_size = kernel_size + 1 if kernel_size % 2 == 0 else kernel_size
+            options = {
+                "weights": ContentDetector.Components(
+                    settings.delta_hue, settings.delta_sat,
+                    settings.delta_lum, settings.delta_edges,
+                ),
+                "kernel_size": kernel_size if kernel_size >= 3 else None,
+            }
+        if method == "adaptive":
+            options.update(
+                adaptive_threshold=settings.adaptive_threshold,
+                window_width=settings.window_width,
+                min_content_val=settings.min_content_val,
+            )
+        elif method == "threshold":
+            options = {
+                "fade_bias": settings.fade_bias,
+                "add_final_scene": settings.add_final_scene,
+                "method": (
+                    ThresholdDetector.Method.CEILING
+                    if settings.threshold_method == "ceiling"
+                    else ThresholdDetector.Method.FLOOR
+                ),
+            }
     if method == "adaptive":
-        return AdaptiveDetector(min_scene_len=min_scene_len, luma_only=luma_only)
+        return AdaptiveDetector(min_scene_len=min_scene_len, luma_only=luma_only, **options)
     if method == "threshold":
         # ThresholdDetector does not support luma_only in PySceneDetect 0.7.x.
-        return ThresholdDetector(threshold=threshold, min_scene_len=min_scene_len)
+        return ThresholdDetector(threshold=threshold, min_scene_len=min_scene_len, **options)
+    if method == "hash":
+        return HashDetector(threshold=hash_threshold, min_scene_len=min_scene_len)
+    if method == "histogram":
+        return HistogramDetector(threshold=hist_threshold, min_scene_len=min_scene_len)
     return ContentDetector(
-        threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only
+        threshold=threshold, min_scene_len=min_scene_len, luma_only=luma_only, **options
     )
 
 
@@ -184,6 +244,10 @@ def detect_scenes(
     luma_only: bool,
     start_time: float = 0.0,
     duration: float = 0.0,
+    hash_threshold: float = 0.395,
+    hist_threshold: float = 0.05,
+    downscale: int = 0,
+    settings: DetectorSettings | None = None,
 ):
     video = open_video(video_path)
     if start_time > 0:
@@ -196,6 +260,10 @@ def detect_scenes(
         min_scene_len_frames,
         luma_only,
         duration,
+        hash_threshold=hash_threshold,
+        hist_threshold=hist_threshold,
+        downscale=downscale,
+        settings=settings,
     )
 
 
@@ -207,6 +275,10 @@ def detect_scenes_from_video(
     min_scene_len_frames: int,
     luma_only: bool,
     duration: float = 0.0,
+    hash_threshold: float = 0.395,
+    hist_threshold: float = 0.05,
+    downscale: int = 0,
+    settings: DetectorSettings | None = None,
 ):
     fps = float(getattr(video, "frame_rate", 0.0))
     min_scene_len_seconds = max(0.0, float(min_scene_len_sec))
@@ -218,7 +290,14 @@ def detect_scenes_from_video(
     manager = SceneManager()
 
     try:
-        detector = choose_detector(method, threshold, min_scene_len, luma_only)
+        if downscale > 0:
+            manager.auto_downscale = False
+            manager.downscale = downscale
+        detector = choose_detector(
+            method, threshold, min_scene_len, luma_only,
+            hash_threshold=hash_threshold, hist_threshold=hist_threshold,
+            settings=settings,
+        )
         manager.add_detector(detector)
         manager.detect_scenes(
             video=video,
@@ -226,6 +305,8 @@ def detect_scenes_from_video(
             show_progress=False,
         )
         scene_list = manager.get_scene_list(start_in_scene=True)
+        # Fade-to-white detection can emit an initial cut at frame zero.
+        scene_list = [(start, end) for start, end in scene_list if end.frame_num > start.frame_num]
     finally:
         # Ensure file-backed streams are released even if detection raises.
         release = getattr(video, "release", None)
