@@ -161,6 +161,28 @@ class VideoOpsTests(unittest.TestCase):
             [(0, 20), (20, 40)],
         )
 
+    def test_no_cuts_returns_entire_tensor_stream(self):
+        for method in ("content", "adaptive", "threshold"):
+            for frame_count in (1, 218):
+                with self.subTest(method=method, frame_count=frame_count):
+                    video = TensorVideoStream(
+                        torch.full((frame_count, 32, 32, 3), 0.5), 10.0
+                    )
+                    scenes, fps = detect_scenes_from_video(
+                        video,
+                        method=method,
+                        threshold=27.0,
+                        min_scene_len_sec=0.0,
+                        min_scene_len_frames=15,
+                        luma_only=True,
+                    )
+
+                    self.assertAlmostEqual(fps, 10.0)
+                    self.assertEqual(
+                        [(start.frame_num, end.frame_num) for start, end in scenes],
+                        [(0, frame_count)],
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()
