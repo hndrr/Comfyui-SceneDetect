@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.parse import parse_qs
 
 
 SPEC = importlib.util.spec_from_file_location("release_notes", Path(__file__).parents[1] / "scripts/release_notes.py")
@@ -31,7 +32,13 @@ class GitHub:
         if method == "GET" and route.startswith("git/tags/"):
             return self.tags[route.removeprefix("git/tags/")]
         if method == "GET" and route.startswith("releases/tags/"):
-            return self.releases.get(route.removeprefix("releases/tags/"))
+            release = self.releases.get(route.removeprefix("releases/tags/"))
+            return None if release is None or release["draft"] else release
+        if method == "GET" and route.startswith("releases?"):
+            query = parse_qs(route.split("?", 1)[1])
+            page, size = int(query["page"][0]), int(query["per_page"][0])
+            releases = [dict(release, tag_name=tag) for tag, release in self.releases.items()]
+            return releases[(page - 1) * size:page * size]
         if method == "POST" and route == "git/refs":
             tag = data["ref"].removeprefix("refs/tags/")
             self.refs[tag] = {"object": {"type": "commit", "sha": data["sha"]}}
@@ -117,9 +124,39 @@ class ReleaseNotesTests(unittest.TestCase):
     def test_draft_is_not_overwritten_or_published(self):
         self.github.refs["v1.2.2"] = {"object": {"type": "commit", "sha": SHA}}
         self.github.releases["v1.2.2"] = {"draft": True, "body": "Unfinished notes"}
-        with self.assertRaisesRegex(ValueError, "published tag"):
+        with self.assertRaisesRegex(ValueError, "is a draft"):
             self.sync()
         self.assertEqual(self.registry.calls, [])
+
+    def test_draft_on_second_page_stops_before_any_write(self):
+        self.github.releases = {f"v0.0.{index}": {"draft": False, "body": "Older notes"}
+                                for index in range(100)}
+        self.github.releases["v1.2.2"] = {"draft": True, "body": "Unfinished notes"}
+        self.assertIsNone(self.github("GET", f"/repos/{REPO}/releases/tags/v1.2.2"))
+        with self.assertRaisesRegex(ValueError, "is a draft"):
+            self.sync()
+        self.assertEqual(self.registry.calls, [])
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
+        self.assertTrue(any("page=2" in call[1] for call in self.github.calls))
+
+    def test_prepare_rejects_draft_without_creating_notes(self):
+        self.github.releases["v1.2.2"] = {"draft": True, "body": "Unfinished notes"}
+        with self.assertRaisesRegex(ValueError, "is a draft"):
+            notes.release_body(self.github, REPO, "1.2.2", SHA, "Replacement notes")
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
+
+    def test_backfill_checks_all_drafts_before_any_write(self):
+        history = {version: {"sha": SHA, "body": "Historical notes"} for version in ("1.0.0", "1.2.2")}
+        registry = Registry([node(version) for version in history])
+        self.github.releases["v1.2.2"] = {"draft": True, "body": "Unfinished notes"}
+        configs = iter(['[project]\nversion = "1.0.0"\n', '[project]\nversion = "1.2.2"\n'])
+        def fake_git(*args):
+            return next(configs) if args[0] == "show" else ""
+        with patch.object(notes, "git", side_effect=fake_git):
+            with self.assertRaisesRegex(ValueError, "is a draft"):
+                notes.backfill(self.github, registry, REPO, "hndr", "scenedetect", history, {})
+        self.assertFalse(any(call[0] == "PUT" for call in registry.calls))
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
 
     def test_prepare_uses_existing_notes_without_regenerating(self):
         self.sync()

@@ -65,15 +65,28 @@ def checked_tag(github, repository, version, sha):
     return ref
 
 
+def existing_release(github, repository, version):
+    """Find a release, including drafts, across every page of the release list."""
+    page = 1
+    while True:
+        releases = github("GET", f"/repos/{repository}/releases?per_page=100&page={page}")
+        for release in releases:
+            if release["tag_name"] == f"v{version}":
+                if release["draft"]:
+                    raise ValueError(f"Release v{version} is a draft; publish or remove it explicitly")
+                return release
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def release_body(github, repository, version, sha, fallback=None):
     ref = checked_tag(github, repository, version, sha)
     prefix = f"/repos/{repository}"
-    release = github("GET", f"{prefix}/releases/tags/v{version}", missing_ok=True)
+    release = existing_release(github, repository, version)
     if release is not None:
         if ref is None:
             raise ValueError(f"Release v{version} has no matching published tag")
-        if release["draft"]:
-            raise ValueError(f"Release v{version} is a draft; publish or remove it explicitly")
         return (release.get("body") or "").strip()
     if fallback is not None:
         return fallback.strip()
@@ -87,9 +100,9 @@ def sync_release(github, registry, repository, publisher, node_id, node_version,
     version = node_version["version"]
     prefix = f"/repos/{repository}"
     ref = checked_tag(github, repository, version, sha)
-    release = github("GET", f"{prefix}/releases/tags/v{version}", missing_ok=True)
+    release = existing_release(github, repository, version)
     if release is not None:
-        if ref is None or release["draft"]:
+        if ref is None:
             raise ValueError(f"Release v{version} must have a published tag at the expected commit")
         # Edited GitHub release notes are the source of truth on later syncs.
         body = (release.get("body") or "").strip()
