@@ -11,6 +11,9 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
 - Return one scene and its representative frame when no cuts are detected (`scene_count = 1`), for both `VIDEO` and Legacy VHS. Trimmed `VIDEO` inputs cover only the selected trim window.
+- Choose from `content`, `adaptive`, `threshold`, `hash`, and `histogram` detection methods.
+- Control the detection downscale factor while keeping representative images at their original resolution (unless `max_width` / `max_height` is set).
+- Keep PySceneDetect's default detector settings, or select `custom` to tune adaptive detection, content weights, and fade handling.
 
 ## Requirements
 
@@ -66,7 +69,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 
 - Required inputs
   - `video` (`VIDEO`): Connect the output from ComfyUI's built-in `Load Video` node. The video is streamed from the compressed source instead of being expanded into a full frame batch.
-  - `method` (`content|adaptive|threshold`): Scene detection method.
+  - `method` (`content|adaptive|threshold|hash|histogram`): Scene detection method. `hash` compares perceptual hashes; `histogram` compares brightness distributions.
   - `threshold` (`FLOAT`): Detection threshold used by the `content`/`threshold` methods.
   - `min_scene_len_sec` (`FLOAT`): Minimum scene length in seconds. Values greater than zero override `min_scene_len_frames`.
   - `min_scene_len_frames` (`INT`): Minimum scene length in frames, used when `min_scene_len_sec` is `0`.
@@ -79,6 +82,21 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `limit_scenes` (`INT`): Limit the number of scenes processed from the start (0 disables the limit).
   - `write_thumbs` (`BOOLEAN`): Save representative frames as JPEG thumbnails.
   - `thumbs_dir` (`STRING`): Relative directory under ComfyUI's output directory. When empty, thumbnails are written to `output/scene_thumbs`.
+  - `hash_threshold` (`FLOAT`, default `0.395`): Used only by `hash`, independently of `threshold`. Lower values detect more cuts.
+  - `hist_threshold` (`FLOAT`, default `0.05`): Used only by `histogram`, independently of `threshold`. Lower values detect more cuts.
+  - `downscale` (`INT`, default `0`): `0` uses PySceneDetect's automatic scaling; `1` detects at full resolution; `2` halves the width and height. This changes detection resolution, not representative image size. Larger factors reduce detection work but can miss fine changes.
+  - `detector_settings` (`default|custom`, default `default`): `default` uses PySceneDetect's defaults and ignores the detailed settings. Select `custom` to show and adjust them. `hash_threshold`, `hist_threshold`, and `downscale` work in either mode.
+
+Detailed settings apply only to `custom`:
+
+| Method | Settings (defaults) | What they control |
+|---|---|---|
+| `adaptive` | `adaptive_threshold` (`3.0`) | Change relative to surrounding frames needed for a cut; lower values detect more cuts. The shared `threshold` input does not control adaptive detection. |
+| `adaptive` | `window_width` (`2`), `min_content_val` (`15.0`) | Frames on each side used for comparison, and the minimum absolute change needed for a cut. |
+| `content` / `adaptive` | `delta_hue` / `delta_sat` / `delta_lum` (`1.0`), `delta_edges` (`0.0`) | Weights for hue, saturation, brightness, and edge changes. `luma_only=true` overrides these weights and uses brightness alone. |
+| `content` / `adaptive` | `kernel_size` (`0`) | Edge expansion size. `0`–`2` use automatic sizing; larger even values round up to the next odd size. |
+| `threshold` | `fade_bias` (`0.0`) | Boundary within a fade: `-1` at fade-out, `0` midway, `+1` at fade-in. |
+| `threshold` | `add_final_scene` (`false`), `threshold_method` (`floor`) | Add a boundary at the final fade-out; detect fades to black (`floor`) or white (`ceiling`). |
 
 - Outputs
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
@@ -92,6 +110,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 
 
 The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
+The same detection methods and optional settings are available on both nodes. New widgets follow the original 11 widget slots.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
