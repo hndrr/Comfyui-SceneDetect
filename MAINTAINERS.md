@@ -42,7 +42,7 @@
 
 ## GitHub Releases と更新内容
 
-Registry 公開に成功した後、公開したコミットを指す `v1.2.3` などのタグと GitHub Release を作ります。更新内容は英語で統一します。自動生成に使う PR タイトルも英語にします。更新内容は公開前に GitHub のマージ済み PR から生成し、固定済み `comfy-cli` の `COMFY_NODE_CHANGELOG` と GitHub Release の本文に同じ内容を渡します。手動の `publish` 実行では `release_notes` に本文を指定することもできます。
+Registry 公開に成功した後、公開したコミットを指す `v1.2.3` などのタグと GitHub Release を作ります。更新内容は英語で統一し、利用者に影響する機能追加・修正を1〜3項目にまとめます。公開手順や削除済み版の経緯など、運用上の説明は含めません。自動生成に使う PR タイトルも英語にします。更新内容は公開前に GitHub のマージ済み PR から生成し、固定済み `comfy-cli` の `COMFY_NODE_CHANGELOG` と GitHub Release の本文に同じ内容を渡します。手動の `publish` 実行では `release_notes` に本文を指定することもできます。
 
 Release 作成は別の `contents: write` ジョブで行います。Registry 公開ジョブの `github.token` は `contents: read` のままです。同じタグが別のコミットを指す場合や既存 Release が下書きの場合は停止し、既存のタグ・本文を上書きしません。
 
@@ -57,5 +57,7 @@ GitHub Release 作成だけが失敗した場合は **Re-run failed jobs** で�
 3. **Sync notes for existing Registry versions** ジョブの結果を確認する。
 
 このモードは `master` でのみ実行できます。既存の Registry バージョンだけを対象にし、版数を上げたりパッケージを再公開したりしません。GitHub Release がなければ作り、同じ本文を Registry の `changelog` に保存します。既存版の `deprecated` 状態は維持します。GitHub Release の本文を編集してから再度実行すると、その内容を Registry に反映できます。
+
+公開済み版の文言を変更するときは、先に `.github/release-history.json` の変更を PR で確認し、マージ後に GitHub Release の本文を同じ文言に更新してから `sync-notes` を実行します。既存の GitHub Release がある場合、記録ファイルの変更だけでは公開済みの本文は上書きされません。
 
 過去版のコミットと更新内容は `.github/release-history.json` に記録しています。`1.0.0`、`1.0.1`、`1.1.0`、`1.2.0`、`1.2.2` のコミットは、実際の Registry 公開パッケージと照合済みです。削除済みの `1.2.1` は作らず、変更内容を `1.2.2` にまとめています。
