@@ -50,10 +50,12 @@ GitHub Release 作成だけが失敗した場合は **Re-run failed jobs** で�
 
 ## 公開済み版の履歴補完・本文の同期
 
+導入時に過去の GitHub Releases がまだない場合は、次の通常公開より先に `sync-notes` を実行して履歴を補完します。これにより、次の版の自動生成本文に過去の変更全体が含まれるのを防ぎます。
+
 1. Actions の **Publish to Comfy registry** で **Run workflow** を選ぶ。
 2. ブランチを `master`、`mode` を `sync-notes` にして実行する。
 3. **Sync notes for existing Registry versions** ジョブの結果を確認する。
 
-このモードは既存の Registry バージョンだけを対象にし、版数を上げたりパッケージを再公開したりしません。GitHub Release がなければ作り、同じ本文を Registry の `changelog` に保存します。既存版の `deprecated` 状態は維持します。GitHub Release の本文を編集してから再度実行すると、その内容を Registry に反映できます。
+このモードは `master` でのみ実行できます。既存の Registry バージョンだけを対象にし、版数を上げたりパッケージを再公開したりしません。GitHub Release がなければ作り、同じ本文を Registry の `changelog` に保存します。既存版の `deprecated` 状態は維持します。GitHub Release の本文を編集してから再度実行すると、その内容を Registry に反映できます。
 
 過去版のコミットと更新内容は `.github/release-history.json` に記録しています。`1.0.0`、`1.0.1`、`1.1.0`、`1.2.0`、`1.2.2` のコミットは、実際の Registry 公開パッケージと照合済みです。削除済みの `1.2.1` は作らず、変更内容を `1.2.2` にまとめています。
