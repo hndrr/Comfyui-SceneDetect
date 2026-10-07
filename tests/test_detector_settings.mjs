@@ -15,6 +15,7 @@ for (const name of ["PySceneDetectVideo", "PySceneDetectToImages"]) {
         const originalSize = () => [200, 20];
         let calls = 0;
         class Node {
+            size = [300, 96];
             widgets = [
                 { name: "method", value: "content", options: {} },
                 { name: "hash_threshold", value: 0.395, options: {} },
@@ -56,16 +57,29 @@ for (const name of ["PySceneDetectVideo", "PySceneDetectToImages"]) {
         assert.deepEqual(node.widgets, widgets);
 
         control.value = "custom";
+        node.size = [500, 700];
         assert.equal(node.onConfigure(), "configured");
-        assert.equal(node.size[1], 144);
+        assert.deepEqual(Array.from(node.size), [500, 700]);
+        assert.equal(node.widgets[4].hidden, false);
+        control.value = "default";
+        assert.equal(node.onConfigure(), "configured");
+        assert.deepEqual(Array.from(node.size), [500, 700]);
+        assert.equal(node.widgets[4].hidden, true);
+        control.value = "custom";
         assert.equal(control.callback(), "callback");
         assert.equal(calls, 7);
+        assert.deepEqual(Array.from(node.size), [500, 144]);
+
+        node.size = [500, 96];
+        assert.equal(node.onConfigure(), "configured");
+        assert.deepEqual(Array.from(node.size), [500, 144]);
 
         control.callback = () => "renderer callback";
         control.value = "default";
         assert.equal(node.onWidgetChanged("detector_settings"), "changed");
         assert.equal(calls, 8);
         assert.equal(node.size[1], 96);
+        assert.equal(node.size[0], 500);
         assert.equal(node.widgets.length, 6);
         assert.equal(node.widgets[4].value, 3);
     });
