@@ -10,7 +10,9 @@ import torch
 from scenedetect import FrameTimecode
 
 from utils.video_ops import (
+    DetectorSettings,
     TensorVideoStream,
+    choose_detector,
     detect_scenes,
     detect_scenes_from_video,
     read_video_frames,
@@ -19,6 +21,43 @@ from utils.video_ops import (
 
 
 class VideoOpsTests(unittest.TestCase):
+    def test_custom_kernel_sizes_match_documented_automatic_range(self):
+        for method in ("content", "adaptive"):
+            for size, expected in ((0, None), (1, None), (2, None), (3, 3), (4, 5), (5, 5)):
+                with self.subTest(method=method, size=size):
+                    detector = choose_detector(
+                        method, 27.0, 1, False,
+                        settings=DetectorSettings(kernel_size=size),
+                    )
+                    if expected is None:
+                        self.assertIsNone(detector._kernel)
+                    else:
+                        self.assertEqual(detector._kernel.shape, (expected, expected))
+
+    def test_zero_custom_weights_require_luma_only(self):
+        settings = DetectorSettings(
+            delta_hue=0.0, delta_sat=0.0, delta_lum=0.0, delta_edges=0.0,
+        )
+        frames = torch.zeros((40, 16, 16, 3))
+        frames[20:] = 1.0
+        for method in ("content", "adaptive"):
+            with self.subTest(method=method):
+                with self.assertRaisesRegex(ValueError, "At least one content weight"):
+                    detect_scenes_from_video(
+                        TensorVideoStream(frames, 10.0), method, 27.0, 0.0, 1, False,
+                        settings=settings,
+                    )
+                scenes, _ = detect_scenes_from_video(
+                    TensorVideoStream(frames, 10.0), method, 27.0, 0.0, 1, True,
+                    settings=settings,
+                )
+                self.assertEqual(
+                    [(start.frame_num, end.frame_num) for start, end in scenes],
+                    [(0, 20), (20, 40)],
+                )
+        for method in ("threshold", "hash", "histogram"):
+            choose_detector(method, 27.0, 1, False, settings=settings)
+
     def test_tensor_video_stream_reads_normalized_bhwc_as_bgr(self):
         frames = torch.zeros((2, 8, 12, 3), dtype=torch.float32)
         frames[0, :, :, 0] = 1.0
@@ -78,7 +117,11 @@ class VideoOpsTests(unittest.TestCase):
                 luma_only=False,
             )
 
-        choose.assert_called_once_with("content", 27.0, 1.25, False)
+        choose.assert_called_once_with(
+            "content", 27.0, 1.25, False,
+            hash_threshold=0.395, hist_threshold=0.05,
+            settings=None,
+        )
 
     def test_detect_scenes_uses_frames_when_seconds_are_zero(self):
         video = Mock(frame_rate=Fraction(24, 1))
@@ -97,9 +140,16 @@ class VideoOpsTests(unittest.TestCase):
                 min_scene_len_sec=0.0,
                 min_scene_len_frames=15,
                 luma_only=False,
+                downscale=2,
             )
 
-        choose.assert_called_once_with("content", 27.0, 15, False)
+        choose.assert_called_once_with(
+            "content", 27.0, 15, False,
+            hash_threshold=0.395, hist_threshold=0.05,
+            settings=None,
+        )
+        self.assertFalse(manager.auto_downscale)
+        self.assertEqual(manager.downscale, 2)
 
     def test_detect_scenes_finds_hard_cut(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -162,7 +212,7 @@ class VideoOpsTests(unittest.TestCase):
         )
 
     def test_no_cuts_returns_entire_tensor_stream(self):
-        for method in ("content", "adaptive", "threshold"):
+        for method in ("content", "adaptive", "threshold", "hash", "histogram"):
             for frame_count in (1, 218):
                 with self.subTest(method=method, frame_count=frame_count):
                     video = TensorVideoStream(
@@ -182,6 +232,77 @@ class VideoOpsTests(unittest.TestCase):
                         [(start.frame_num, end.frame_num) for start, end in scenes],
                         [(0, frame_count)],
                     )
+
+    def test_new_detectors_find_cuts_and_use_their_own_thresholds(self):
+        rng = np.random.default_rng(0)
+        hash_frames = torch.from_numpy(rng.integers(0, 256, (2, 64, 64, 3), dtype=np.uint8))
+        hist_frames = torch.zeros((2, 64, 64, 3), dtype=torch.uint8)
+        hist_frames[0, :, 32:] = 255
+        hist_frames[1, :, 32:] = 128
+
+        for method, frames, insensitive in (
+            ("hash", hash_frames, {"hash_threshold": 1.0}),
+            ("histogram", hist_frames, {"hist_threshold": 0.9}),
+        ):
+            frames = frames.repeat_interleave(20, dim=0)
+            for downscale in (0, 1, 2):
+                for options, expected in (
+                    ({}, [(0, 20), (20, 40)]),
+                    (insensitive, [(0, 40)]),
+                ):
+                    with self.subTest(method=method, downscale=downscale, options=options):
+                        scenes, fps = detect_scenes_from_video(
+                            TensorVideoStream(frames, 10.0),
+                            method=method,
+                            threshold=1000.0,
+                            min_scene_len_sec=0.0,
+                            min_scene_len_frames=1,
+                            luma_only=True,
+                            downscale=downscale,
+                            **options,
+                        )
+                        self.assertAlmostEqual(fps, 10.0)
+                        self.assertEqual(
+                            [(start.frame_num, end.frame_num) for start, end in scenes],
+                            expected,
+                        )
+
+    def test_threshold_details_control_fade_boundaries(self):
+        frames = torch.cat((
+            torch.ones((20, 32, 32, 3)),
+            torch.zeros((10, 32, 32, 3)),
+            torch.ones((20, 32, 32, 3)),
+        ))
+        for bias, boundary in ((-1.0, 20), (0.0, 25), (1.0, 30)):
+            with self.subTest(bias=bias):
+                scenes, _ = detect_scenes_from_video(
+                    TensorVideoStream(frames, 10.0),
+                    "threshold", 12.0, 0.0, 1, True,
+                    settings=DetectorSettings(fade_bias=bias),
+                )
+                self.assertEqual(
+                    [(start.frame_num, end.frame_num) for start, end in scenes],
+                    [(0, boundary), (boundary, 50)],
+                )
+
+        scenes, _ = detect_scenes_from_video(
+            TensorVideoStream(frames[:30], 10.0),
+            "threshold", 12.0, 0.0, 1, True,
+            settings=DetectorSettings(add_final_scene=True),
+        )
+        self.assertEqual(
+            [(start.frame_num, end.frame_num) for start, end in scenes],
+            [(0, 20), (20, 30)],
+        )
+        scenes, _ = detect_scenes_from_video(
+            TensorVideoStream(1.0 - frames, 10.0),
+            "threshold", 240.0, 0.0, 1, True,
+            settings=DetectorSettings(threshold_method="ceiling"),
+        )
+        self.assertEqual(
+            [(start.frame_num, end.frame_num) for start, end in scenes],
+            [(0, 25), (25, 50)],
+        )
 
 
 if __name__ == "__main__":

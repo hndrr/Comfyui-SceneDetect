@@ -4,6 +4,7 @@ import os, json, cv2, torch
 import numpy as np
 
 from ..utils.video_ops import (
+    DetectorSettings,
     TensorVideoStream,
     detect_scenes_from_video,
     timecodes_to_dict,
@@ -11,6 +12,7 @@ from ..utils.video_ops import (
     resize_keep_ar,
     frame_to_tensor_bhwc,
 )
+from .detector_inputs import detector_input_types
 
 
 class _MultiInput(str):
@@ -40,7 +42,7 @@ class PySceneDetectToImages:
                 "image": (IMAGE_OR_LATENT, {}),
                 "video_info": ("VHS_VIDEOINFO", {}),
                 "method": (
-                    ["content", "adaptive", "threshold"],
+                    ["content", "adaptive", "threshold", "hash", "histogram"],
                     {"default": "content"},
                 ),
                 "threshold": (
@@ -61,6 +63,22 @@ class PySceneDetectToImages:
                 "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "write_thumbs": ("BOOLEAN", {"default": False}),
                 "thumbs_dir": ("STRING", {"default": "", "placeholder": "Leave empty to use ./scene_thumbs"}),
+                "hash_threshold": (
+                    "FLOAT",
+                    {"default": 0.395, "min": 0.0, "max": 1.0, "step": 0.001,
+                     "tooltip": "Cut threshold for hash detection. Lower values detect more cuts."},
+                ),
+                "hist_threshold": (
+                    "FLOAT",
+                    {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.001,
+                     "tooltip": "Cut threshold for histogram detection. Lower values detect more cuts."},
+                ),
+                "downscale": (
+                    "INT",
+                    {"default": 0, "min": 0, "step": 1,
+                     "tooltip": "Detection only: 0 = automatic, 1 = full resolution, 2 = half width/height. Representative images keep their original resolution."},
+                ),
+                **detector_input_types(),
             },
         }
 
@@ -84,6 +102,11 @@ class PySceneDetectToImages:
         limit_scenes: int = 0,
         write_thumbs: bool = False,
         thumbs_dir: str = "",
+        hash_threshold: float = 0.395,
+        hist_threshold: float = 0.05,
+        downscale: int = 0,
+        detector_settings: str = "default",
+        **detector_options,
     ):
         if isinstance(image, dict) and "samples" in image:
             raise ValueError("LATENT tensors from VAE outputs are not supported. Disconnect the VAE from the Load Video node.")
@@ -106,6 +129,7 @@ class PySceneDetectToImages:
             return val
 
         video_info_json = {k: _jsonable(v) for k, v in video_info.items()}
+        settings = DetectorSettings(**detector_options) if detector_settings == "custom" else None
 
         video = TensorVideoStream(image, fps)
         scene_list, fps_detected = detect_scenes_from_video(
@@ -115,6 +139,10 @@ class PySceneDetectToImages:
             min_scene_len_sec,
             min_scene_len_frames,
             luma_only,
+            hash_threshold=hash_threshold,
+            hist_threshold=hist_threshold,
+            downscale=downscale,
+            settings=settings,
         )
 
         if fps_detected > 0:
@@ -167,6 +195,10 @@ class PySceneDetectToImages:
                     else int(min_scene_len_frames)
                 ),
                 "representative": representative,
+                "hash_threshold": hash_threshold,
+                "hist_threshold": hist_threshold,
+                "downscale": downscale,
+                "detector_settings": detector_settings,
                 "scenes": rows,
             },
             ensure_ascii=False,

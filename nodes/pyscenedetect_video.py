@@ -5,6 +5,7 @@ import numpy as np
 import folder_paths
 
 from ..utils.video_ops import (
+    DetectorSettings,
     detect_scenes,
     frame_to_tensor_bhwc,
     pick_frame_index,
@@ -13,6 +14,7 @@ from ..utils.video_ops import (
     timecodes_to_dict,
     video_source_path,
 )
+from .detector_inputs import detector_input_types
 
 
 def _resolve_thumbnail_path(output_root: str, relative_path: str) -> str:
@@ -36,7 +38,7 @@ class PySceneDetectVideo:
             "required": {
                 "video": ("VIDEO", {}),
                 "method": (
-                    ["content", "adaptive", "threshold"],
+                    ["content", "adaptive", "threshold", "hash", "histogram"],
                     {"default": "content"},
                 ),
                 "threshold": (
@@ -57,6 +59,22 @@ class PySceneDetectVideo:
                 "limit_scenes": ("INT", {"default": 0, "min": 0, "step": 1}),
                 "write_thumbs": ("BOOLEAN", {"default": False}),
                 "thumbs_dir": ("STRING", {"default": "", "placeholder": "Relative to ComfyUI output; default: scene_thumbs"}),
+                "hash_threshold": (
+                    "FLOAT",
+                    {"default": 0.395, "min": 0.0, "max": 1.0, "step": 0.001,
+                     "tooltip": "Cut threshold for hash detection. Lower values detect more cuts."},
+                ),
+                "hist_threshold": (
+                    "FLOAT",
+                    {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.001,
+                     "tooltip": "Cut threshold for histogram detection. Lower values detect more cuts."},
+                ),
+                "downscale": (
+                    "INT",
+                    {"default": 0, "min": 0, "step": 1,
+                     "tooltip": "Detection only: 0 = automatic, 1 = full resolution, 2 = half width/height. Representative images keep their original resolution."},
+                ),
+                **detector_input_types(),
             },
         }
 
@@ -79,6 +97,11 @@ class PySceneDetectVideo:
         limit_scenes: int = 0,
         write_thumbs: bool = False,
         thumbs_dir: str = "",
+        hash_threshold: float = 0.395,
+        hist_threshold: float = 0.05,
+        downscale: int = 0,
+        detector_settings: str = "default",
+        **detector_options,
     ):
         fps = float(video.get_frame_rate())
         if fps <= 0:
@@ -88,6 +111,7 @@ class PySceneDetectVideo:
         frame_count = video.get_frame_count()
         video_duration = video.get_duration()
         start_time, trim_duration = video.get_active_trim_window()
+        settings = DetectorSettings(**detector_options) if detector_settings == "custom" else None
 
         with video_source_path(video.get_stream_source()) as video_path:
             scene_list, fps_detected = detect_scenes(
@@ -99,6 +123,10 @@ class PySceneDetectVideo:
                 luma_only,
                 start_time,
                 trim_duration,
+                hash_threshold=hash_threshold,
+                hist_threshold=hist_threshold,
+                downscale=downscale,
+                settings=settings,
             )
             if fps_detected > 0:
                 fps = fps_detected
@@ -172,6 +200,10 @@ class PySceneDetectVideo:
                     else int(min_scene_len_frames)
                 ),
                 "representative": representative,
+                "hash_threshold": hash_threshold,
+                "hist_threshold": hist_threshold,
+                "downscale": downscale,
+                "detector_settings": detector_settings,
                 "scenes": rows,
             },
             ensure_ascii=False,
