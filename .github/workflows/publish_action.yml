@@ -6,7 +6,7 @@ on:
             - master
 
 permissions:
-    contents: write
+    contents: read
 
 concurrency:
     group: comfy-registry-publish
@@ -14,10 +14,15 @@ concurrency:
     queue: max
 
 jobs:
-    publish-node:
-        name: Publish Custom Node to registry
+    prepare-release:
+        name: Prepare Registry release
         if: github.ref == 'refs/heads/master'
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        outputs:
+            publish: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.publish == 'true' }}
+            release_sha: ${{ steps.revision.outputs.sha }}
         steps:
             - name: Check out code
               uses: actions/checkout@v4
@@ -69,7 +74,10 @@ jobs:
                   baseline = before
                   if prepared:
                       message = subprocess.check_output(["git", "show", "-s", "--format=%B", prepared], text=True)
-                      source_sha = re.search(r"(?m)^Registry-Source: ([0-9a-f]{40})$", message)[1]
+                      source_match = re.search(r"(?m)^Registry-Source: ([0-9a-f]{40})$", message)
+                      if source_match is None:
+                          raise SystemExit("Invalid Registry-Source: expected a 40-character commit SHA")
+                      source_sha = source_match[1]
                       covered = subprocess.run(["git", "merge-base", "--is-ancestor", os.environ["PUSH_SHA"], source_sha])
                       if covered.returncode == 0:
                           print("skip")
@@ -124,9 +132,31 @@ jobs:
                   if git config --local --get-all http.https://github.com/.extraheader > /dev/null; then
                       git config --local --unset-all http.https://github.com/.extraheader
                   fi
+            - name: Record release commit
+              id: revision
+              shell: bash
+              run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    publish-node:
+        name: Publish Custom Node to registry
+        needs: prepare-release
+        if: needs.prepare-release.outputs.publish == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out prepared release
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.prepare-release.outputs.release_sha }}
+                  persist-credentials: false
+            - name: Pin comfy-cli version
+              shell: bash
+              run: echo 'comfy-cli==1.22.0' > "$RUNNER_TEMP/comfy-cli-constraints.txt"
             - name: Publish Custom Node
-              if: github.event_name == 'workflow_dispatch' || steps.version.outputs.publish == 'true'
               uses: Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9
+              env:
+                  PIP_CONSTRAINT: ${{ runner.temp }}/comfy-cli-constraints.txt
               with:
                   personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
                   skip_checkout: 'true'

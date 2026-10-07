@@ -18,17 +18,24 @@
 
 ## 公開失敗時の再試行
 
+先に、対象の準備コミット（`Prepare registry version ...`）が `master` に入っているか確認します。
+
+- **準備コミットの push 前に失敗した場合**：失敗した実行の **Re-run** でバージョン準備からやり直します。`Increment and commit patch version` などで失敗し、準備コミットが `master` に入っていない場合が該当します。この状態で **Run workflow** を使うと、番号を上げずに現行バージョンを公開しようとします。
+- **準備コミットが `master` に入った後に失敗した場合**：次の **Run workflow** の手順で公開を再試行します。**Re-run all jobs** では準備済みと判定され、公開をスキップしたまま成功扱いになることがあります。公開ジョブだけが失敗した場合は、**Re-run failed jobs** でも確定済みコミットの公開を再試行できます。
+
+準備コミットが `master` に入った後の再試行手順：
+
 1. GitHub の **Actions** で **Publish to Comfy registry** を開く。
 2. **Run workflow** を選び、ブランチを `master` にする。
 3. **Run workflow** で実行し、**Publish Custom Node** ステップの結果を確認する。
 
 手動実行は現在のバージョンを公開し、番号を上げません。
 
-準備コミットの push 後に公開が失敗した場合、**Re-run** では準備済みと判定され、公開をスキップしたまま成功扱いになることがあります。公開の再試行には **Run workflow** を使います。
-
 ## 公開設定の管理
 
 - Registry の認証情報はリポジトリの Actions secret `REGISTRY_ACCESS_TOKEN` に保存します。
-- バージョンの準備には `contents: write` 権限と `master` への push が必要です。Git の書き込み認証情報は公開 Action の実行前に削除します。
+- バージョン準備ジョブは `contents: write` 権限で `master` に push します。Git の書き込み認証情報は準備ジョブの終了前に削除します。
+- 公開は別の `contents: read` ジョブで行います。準備ジョブが確定したコミット SHA を checkout して公開し、composite action が参照する `github.token` も読み取り専用になります。
 - 公開 Action はコミット `d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9` に固定しています。Action 本体を更新するときは、更新先の内容を確認してワークフローの SHA を書き換え、コミット・PR に含めます。
 - 公開 Action の `skip_checkout: 'true'` は、準備したバージョンを公開に使うために必要です。
+- 公開 Action 内でインストールする `comfy-cli` は、`PIP_CONSTRAINT` で `1.22.0` に固定しています。更新時はワークフローの `Pin comfy-cli version` ステップのバージョンを変更します。
