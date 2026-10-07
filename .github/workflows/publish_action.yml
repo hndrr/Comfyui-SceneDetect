@@ -4,17 +4,96 @@ on:
     push:
         branches:
             - master
-        paths:
-            - "pyproject.toml"
+
+permissions:
+    contents: write
+
+concurrency:
+    group: comfy-registry-publish
+    cancel-in-progress: false
 
 jobs:
     publish-node:
         name: Publish Custom Node to registry
+        if: github.ref == 'refs/heads/master'
         runs-on: ubuntu-latest
         steps:
             - name: Check out code
               uses: actions/checkout@v4
+              with:
+                  ref: master
+                  fetch-depth: 0
+            - name: Set up Python for version update
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Increment and commit patch version
+              if: github.event_name == 'push'
+              shell: bash
+              env:
+                  BEFORE_SHA: ${{ github.event.before }}
+                  PUSH_SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+                  for attempt in 1 2 3; do
+                      git fetch origin master
+                      git reset --hard origin/master
+                      python - <<'PY' > "$RUNNER_TEMP/registry-version"
+                  from pathlib import Path
+                  import os
+                  import re
+                  import subprocess
+                  import tomllib
+
+                  path = Path("pyproject.toml")
+                  source = path.read_text(encoding="utf-8")
+                  version = tomllib.loads(source)["project"]["version"]
+
+                  def version_at(revision):
+                      source = subprocess.check_output(["git", "show", f"{revision}:pyproject.toml"], text=True)
+                      return tomllib.loads(source)["project"]["version"]
+
+                  before = version_at(os.environ["BEFORE_SHA"])
+                  pushed = version_at(os.environ["PUSH_SHA"])
+                  if pushed != before:
+                      if tuple(map(int, pushed.split("."))) <= tuple(map(int, before.split("."))):
+                          raise SystemExit("The explicit project.version must increase")
+                      print(version)
+                      raise SystemExit(0)
+
+                  major, minor, patch = map(int, version.split("."))
+                  new_version = f"{major}.{minor}.{patch + 1}"
+                  project = re.search(r"(?ms)^\[project\][^\n]*\n.*?(?=^\[|\Z)", source)
+                  updated, count = re.subn(
+                      rf'''(?m)^([ \t]*version[ \t]*=[ \t]*)(["']){re.escape(version)}\2''',
+                      lambda match: f"{match[1]}{match[2]}{new_version}{match[2]}",
+                      project[0],
+                  )
+                  if count != 1:
+                      raise SystemExit("Expected one project.version assignment")
+                  path.write_text(source[:project.start()] + updated + source[project.end():], encoding="utf-8")
+                  print(new_version)
+                  PY
+                      version=$(cat "$RUNNER_TEMP/registry-version")
+                      if git diff --quiet -- pyproject.toml; then
+                          echo "Publishing explicit version $version."
+                          exit 0
+                      fi
+                      git add pyproject.toml
+                      git commit -m "Bump registry version to $version"
+                      # GITHUB_TOKEN pushes do not trigger another publish run.
+                      if git push origin HEAD:master; then
+                          exit 0
+                      fi
+                      echo "::warning::Version push failed; retrying ($attempt/3)."
+                  done
+                  echo "::error::Could not commit the registry version to master."
+                  exit 1
             - name: Publish Custom Node
               uses: Comfy-Org/publish-node-action@main
               with:
-                  personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }} ## Add your own personal access token to your Github Repository secrets and reference it here.
+                  personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+                  skip_checkout: 'true'

@@ -2,6 +2,12 @@
 
 Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The recommended node accepts ComfyUI's built-in `VIDEO` type and processes the source without materializing every frame as an `IMAGE` batch. A Legacy VHS node is retained for existing workflows. Both nodes return one representative image per scene, scene metadata as JSON, and the detected scene count.
 
+## Registry releases
+
+Every push or PR merge to `master` automatically increments the patch version in `pyproject.toml`, commits the version update, and publishes it to Comfy Registry. For example, `1.2.0` becomes `1.2.1`. To release a minor or major version, explicitly increase `project.version` in the PR (for example, to `1.3.0` or `2.0.0`); that version is published without another increment. Publishing runs are serialized; the version commit does not trigger another run.
+
+To retry a failed publication, select `master` and run **Publish to Comfy registry** manually from GitHub Actions. Manual runs publish the current version without incrementing it. The workflow uses the existing `REGISTRY_ACCESS_TOKEN` secret and needs permission to push version commits to `master`.
+
 ## Features
 
 - Direct support for ComfyUI's built-in `Load Video` and `VIDEO` type
