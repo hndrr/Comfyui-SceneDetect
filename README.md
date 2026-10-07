@@ -93,7 +93,7 @@ Detailed settings apply only to `custom`:
 |---|---|---|
 | `adaptive` | `adaptive_threshold` (`3.0`) | Change relative to surrounding frames needed for a cut; lower values detect more cuts. The shared `threshold` input does not control adaptive detection. |
 | `adaptive` | `window_width` (`2`), `min_content_val` (`15.0`) | Frames on each side used for comparison, and the minimum absolute change needed for a cut. |
-| `content` / `adaptive` | `delta_hue` / `delta_sat` / `delta_lum` (`1.0`), `delta_edges` (`0.0`) | Weights for hue, saturation, brightness, and edge changes. `luma_only=true` overrides these weights and uses brightness alone. |
+| `content` / `adaptive` | `delta_hue` / `delta_sat` / `delta_lum` (`1.0`), `delta_edges` (`0.0`) | Weights for hue, saturation, brightness, and edge changes. At least one weight must be non-zero. `luma_only=true` overrides these weights and uses brightness alone, allowing all weights to be zero. |
 | `content` / `adaptive` | `kernel_size` (`0`) | Edge expansion size. `0`–`2` use automatic sizing; larger even values round up to the next odd size. |
 | `threshold` | `fade_bias` (`0.0`) | Boundary within a fade: `-1` at fade-out, `0` midway, `+1` at fade-in. |
 | `threshold` | `add_final_scene` (`false`), `threshold_method` (`floor`) | Add a boundary at the final fade-out; detect fades to black (`floor`) or white (`ceiling`). |
