@@ -1,9 +1,25 @@
 name: Publish to Comfy registry
 on:
     workflow_dispatch:
+        inputs:
+            mode:
+                description: Publish the current version, or only sync existing release notes
+                type: choice
+                options:
+                    - publish
+                    - sync-notes
+                default: publish
+            release_notes:
+                description: Optional release notes for manual publishing
+                type: string
+                required: false
     push:
         branches:
             - master
+        paths-ignore:
+            - '.github/**'
+            - README.md
+            - MAINTAINERS.md
 
 permissions:
     contents: read
@@ -16,13 +32,15 @@ concurrency:
 jobs:
     prepare-release:
         name: Prepare Registry release
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/master' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'publish')
         runs-on: ubuntu-latest
         permissions:
             contents: write
         outputs:
             publish: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.publish == 'true' }}
             release_sha: ${{ steps.revision.outputs.sha }}
+            release_version: ${{ steps.notes.outputs.version }}
+            release_notes: ${{ steps.notes.outputs.body }}
         steps:
             - name: Check out code
               uses: actions/checkout@v4
@@ -136,6 +154,14 @@ jobs:
               id: revision
               shell: bash
               run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            - name: Prepare shared release notes
+              id: notes
+              if: github.event_name == 'workflow_dispatch' || steps.version.outputs.publish == 'true'
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
+              run: python .github/scripts/release_notes.py prepare
 
     publish-node:
         name: Publish Custom Node to registry
@@ -157,6 +183,57 @@ jobs:
               uses: Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9
               env:
                   PIP_CONSTRAINT: ${{ runner.temp }}/comfy-cli-constraints.txt
+                  COMFY_NODE_CHANGELOG: ${{ needs.prepare-release.outputs.release_notes }}
               with:
                   personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
                   skip_checkout: 'true'
+
+    create-release:
+        name: Create GitHub Release and sync notes
+        needs: [prepare-release, publish-node]
+        if: needs.prepare-release.outputs.publish == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Check out published commit
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.prepare-release.outputs.release_sha }}
+                  persist-credentials: false
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Create release with shared notes
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+                  RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+                  RELEASE_SHA: ${{ needs.prepare-release.outputs.release_sha }}
+                  RELEASE_NOTES: ${{ needs.prepare-release.outputs.release_notes }}
+              run: python .github/scripts/release_notes.py create
+
+    sync-release-notes:
+        name: Sync notes for existing Registry versions
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'sync-notes'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Check out release history
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Create missing releases and sync existing notes
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+              run: python .github/scripts/release_notes.py backfill
