@@ -10,6 +10,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
+- Preview a `VIDEO` or a list of clips without saving to the output directory.
 - Return one scene and its representative frame when no cuts are detected (`scene_count = 1`), for both `VIDEO` and Legacy VHS. Trimmed `VIDEO` inputs cover only the selected trim window.
 - Choose from `content`, `adaptive`, `threshold`, `hash`, and `histogram` detection methods.
 - Control the detection downscale factor while keeping representative images at their original resolution (unless `max_width` / `max_height` is set).
@@ -116,6 +117,12 @@ The same detection methods and optional settings are available on both nodes. Ne
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
 - Do not connect a VAE; latent batches are unsupported.
 - The node processes the supplied tensor one frame at a time, but the full VHS `IMAGE` batch still remains resident in memory.
+
+### `PySceneDetect: Preview Videos`
+
+Connect a `VIDEO` from ComfyUI's built-in `Load Video`, or a list of `VIDEO` clips. Use the arrows or scene number to switch clips. The player follows each clip's aspect ratio and loads only the selected clip. Files outside ComfyUI's temp directory are copied into temp for playback; output files are not created.
+
+The node supports ComfyUI's V3 API and the legacy node interface. It can be used independently of the SceneDetect nodes.
 
 ## JSON Output Example (`scenes_json`)
 
