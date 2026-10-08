@@ -10,6 +10,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
+- Optionally split detected scenes into temporary `VIDEO` clips for ComfyUI's built-in `Save Video`.
 - Return one scene and its representative frame when no cuts are detected (`scene_count = 1`), for both `VIDEO` and Legacy VHS. Trimmed `VIDEO` inputs cover only the selected trim window.
 - Choose from `content`, `adaptive`, `threshold`, `hash`, and `histogram` detection methods.
 - Control the detection downscale factor while keeping representative images at their original resolution (unless `max_width` / `max_height` is set).
@@ -19,6 +20,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 
 - ComfyUI with built-in `VIDEO` support for the recommended node
 - Python 3.10 or newer
+- `ffmpeg` on PATH when `split_clips` is enabled
 - [PySceneDetect 0.7](https://github.com/Breakthrough/PySceneDetect) and OpenCV (installed through this package's dependency list)
 - [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only when using the Legacy VHS node
 
@@ -85,6 +87,8 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `hash_threshold` (`FLOAT`, default `0.395`): Used only by `hash`, independently of `threshold`. Lower values detect more cuts.
   - `hist_threshold` (`FLOAT`, default `0.05`): Used only by `histogram`, independently of `threshold`. Lower values detect more cuts.
   - `downscale` (`INT`, default `0`): `0` uses PySceneDetect's automatic scaling; `1` detects at full resolution; `2` halves the width and height. This changes detection resolution, not representative image size. Larger factors reduce detection work but can miss fine changes.
+  - `split_clips` (`BOOLEAN`, default `false`): Split processed scenes into temporary MP4 files and return them on `scene_videos`.
+  - `split_reencode` (`BOOLEAN`, default `true`): Re-encode with libx264 for accurate cuts. Disable for stream copy; failed copy attempts retry with re-encoding.
   - `detector_settings` (`default|custom`, default `default`): `default` uses PySceneDetect's defaults and ignores the detailed settings. Select `custom` to show and adjust them. `hash_threshold`, `hist_threshold`, and `downscale` work in either mode.
 
 Detailed settings apply only to `custom`:
@@ -102,6 +106,7 @@ Detailed settings apply only to `custom`:
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
+  - `scene_videos` (`VIDEO` list): One clip per processed scene, or an empty list when splitting is disabled. Connect to ComfyUI's built-in `Save Video` to persist the clips.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
@@ -110,7 +115,7 @@ Detailed settings apply only to `custom`:
 
 
 The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
-The same detection methods and optional settings are available on both nodes. New widgets follow the original 11 widget slots.
+The same detection methods and detector settings are available on both nodes. Clip splitting is available only on the recommended `VIDEO` node. New widgets follow the original 11 widget slots.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -163,6 +168,12 @@ Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 - Legacy VHS: `workflow/pyscene_workflow_legacy_vhs.json`
 
 Existing workflows containing `PySceneDetectToImages` continue to load as the Legacy VHS node.
+
+## Scene Clips
+
+Enable `split_clips` on `PySceneDetect: Video → Scenes`. Each processed scene produces a `VIDEO` clip under ComfyUI's temp directory and gains a `clip_path` in `scenes_json`. Splitting respects the input trim window and `limit_scenes`. Clips remain in temp unless connected to `Save Video`.
+
+Re-encoding is enabled by default to preserve scene boundaries. Stream copy is faster but can include frames beyond a cut until the next keyframe. Only representative frames are decoded into an `IMAGE` batch; clip outputs stay file-backed.
 
 ## Memory Behavior
 
