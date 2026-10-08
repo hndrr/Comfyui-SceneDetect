@@ -14,6 +14,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Choose from `content`, `adaptive`, `threshold`, `hash`, and `histogram` detection methods.
 - Control the detection downscale factor while keeping representative images at their original resolution (unless `max_width` / `max_height` is set).
 - Keep PySceneDetect's default detector settings, or select `custom` to tune adaptive detection, content weights, and fade handling.
+- Emit a scene summary and one prompt per scene for existing LLM/VLM nodes.
 
 ## Requirements
 
@@ -85,6 +86,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `hash_threshold` (`FLOAT`, default `0.395`): Used only by `hash`, independently of `threshold`. Lower values detect more cuts.
   - `hist_threshold` (`FLOAT`, default `0.05`): Used only by `histogram`, independently of `threshold`. Lower values detect more cuts.
   - `downscale` (`INT`, default `0`): `0` uses PySceneDetect's automatic scaling; `1` detects at full resolution; `2` halves the width and height. This changes detection resolution, not representative image size. Larger factors reduce detection work but can miss fine changes.
+  - `prompt_template` (`STRING`, default empty): Template for each scene prompt. Empty uses the built-in shot description prompt.
   - `detector_settings` (`default|custom`, default `default`): `default` uses PySceneDetect's defaults and ignores the detailed settings. Select `custom` to show and adjust them. `hash_threshold`, `hist_threshold`, and `downscale` work in either mode.
 
 Detailed settings apply only to `custom`:
@@ -102,6 +104,8 @@ Detailed settings apply only to `custom`:
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
+  - `all_scenes_text` (`STRING`): One summary covering all processed scenes, for a single text LLM call.
+  - `per_scene_prompt_list` (`STRING` list): One prompt per scene, for a VLM alongside the representative images.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
@@ -163,6 +167,14 @@ Both samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 - Legacy VHS: `workflow/pyscene_workflow_legacy_vhs.json`
 
 Existing workflows containing `PySceneDetectToImages` continue to load as the Legacy VHS node.
+
+## LLM/VLM Prompts
+
+Both nodes append `all_scenes_text` and `per_scene_prompt_list` after the original three outputs. Existing widgets stay in order; `prompt_template` is appended after the detector settings. Scene limits apply to the summary and prompt list too.
+
+Templates support `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, and `{duration_frames}`. Numeric format specifiers work, for example `{duration_sec:.3f}`. Unknown placeholders are preserved. Use `{{` and `}}` for literal braces.
+
+This package formats metadata locally and does not call an LLM API. Connect the text outputs to your existing LLM/VLM nodes.
 
 ## Memory Behavior
 
