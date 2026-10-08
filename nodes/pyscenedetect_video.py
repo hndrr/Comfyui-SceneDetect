@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict
-import json, ntpath, os, cv2, torch
+import json, ntpath, os, uuid, cv2, torch
 import numpy as np
 import folder_paths
 
@@ -14,6 +14,7 @@ from ..utils.video_ops import (
     timecodes_to_dict,
     video_source_path,
 )
+from ..utils.scene_clips import load_video_from_file, split_scene_clips, stamp_scene_duration
 from .detector_inputs import detector_input_types
 
 
@@ -75,11 +76,14 @@ class PySceneDetectVideo:
                      "tooltip": "Detection only: 0 = automatic, 1 = full resolution, 2 = half width/height. Representative images keep their original resolution."},
                 ),
                 **detector_input_types(),
+                "split_clips": ("BOOLEAN", {"default": False}),
+                "split_reencode": ("BOOLEAN", {"default": True}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "VIDEO")
+    RETURN_NAMES = ("images", "scenes_json", "scene_count", "scene_videos")
+    OUTPUT_IS_LIST = (False, False, False, True)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -101,6 +105,8 @@ class PySceneDetectVideo:
         hist_threshold: float = 0.05,
         downscale: int = 0,
         detector_settings: str = "default",
+        split_clips: bool = False,
+        split_reencode: bool = True,
         **detector_options,
     ):
         fps = float(video.get_frame_rate())
@@ -113,6 +119,7 @@ class PySceneDetectVideo:
         start_time, trim_duration = video.get_active_trim_window()
         settings = DetectorSettings(**detector_options) if detector_settings == "custom" else None
 
+        scene_videos = []
         with video_source_path(video.get_stream_source()) as video_path:
             scene_list, fps_detected = detect_scenes(
                 video_path,
@@ -131,12 +138,26 @@ class PySceneDetectVideo:
             if fps_detected > 0:
                 fps = fps_detected
 
-            rows = timecodes_to_dict(scene_list, fps)
             if limit_scenes and limit_scenes > 0:
-                rows = rows[:limit_scenes]
+                scene_list = scene_list[:limit_scenes]
+            rows = timecodes_to_dict(scene_list, fps)
 
             frame_indices = [pick_frame_index(row, representative) for row in rows]
             frames = read_video_frames(video_path, frame_indices)
+
+            if split_clips and scene_list:
+                clip_dir = os.path.join(
+                    folder_paths.get_temp_directory(), "scenedetect_clips", uuid.uuid4().hex,
+                )
+                clip_paths = split_scene_clips(
+                    video_path, scene_list, clip_dir,
+                    video_name=video_path, reencode=split_reencode,
+                )
+                for row, clip_path in zip(rows, clip_paths):
+                    row["clip_path"] = clip_path
+                    scene_videos.append(
+                        stamp_scene_duration(load_video_from_file(clip_path), row["duration_sec"])
+                    )
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
@@ -210,7 +231,7 @@ class PySceneDetectVideo:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows))
+        return (batch, scenes_json, len(rows), scene_videos)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}

@@ -61,8 +61,8 @@ class VideoNodeTests(unittest.TestCase):
                 inputs["required"]["method"][0],
                 ["content", "adaptive", "threshold", "hash", "histogram"],
             )
-            self.assertEqual(cls.RETURN_TYPES, ("IMAGE", "STRING", "INT"))
-            self.assertEqual(cls.RETURN_NAMES, ("images", "scenes_json", "scene_count"))
+            self.assertEqual(cls.RETURN_TYPES[:3], ("IMAGE", "STRING", "INT"))
+            self.assertEqual(cls.RETURN_NAMES[:3], ("images", "scenes_json", "scene_count"))
 
     def test_new_detectors_work_in_both_nodes_with_full_size_representatives(self):
         rng = np.random.default_rng(0)
@@ -108,7 +108,7 @@ class VideoNodeTests(unittest.TestCase):
                                     torch.from_numpy(frames.copy()).float() / 255.0,
                                     {"loaded_fps": 10.0}, **settings,
                                 )
-                            images, scenes_json, count = result
+                            images, scenes_json, count = result[:3]
                             scenes = json.loads(scenes_json)["scenes"]
                             self.assertEqual(count, len(expected))
                             self.assertEqual(images.shape, (count, 64, 64, 3))
@@ -167,7 +167,7 @@ class VideoNodeTests(unittest.TestCase):
                                     torch.from_numpy(frames.copy()).float() / 255.0,
                                     {"loaded_fps": 10.0}, **settings,
                                 )
-                            images, scenes_json, count = result
+                            images, scenes_json, count = result[:3]
                             self.assertEqual(count, len(expected))
                             self.assertEqual(images.shape, (count, 32, 32, 3))
                             self.assertEqual(
@@ -231,7 +231,7 @@ class VideoNodeTests(unittest.TestCase):
             finally:
                 writer.release()
 
-            images, scenes_json, count = video_node.PySceneDetectVideo().run(
+            result = video_node.PySceneDetectVideo().run(
                 InputImpl.VideoFromFile(str(video_path)),
                 method="content",
                 threshold=10.0,
@@ -239,6 +239,7 @@ class VideoNodeTests(unittest.TestCase):
                 min_scene_len_frames=1,
                 luma_only=False,
             )
+            images, scenes_json, count = result[:3]
 
         scenes = json.loads(scenes_json)["scenes"]
         self.assertEqual(count, 2)
@@ -270,7 +271,7 @@ class VideoNodeTests(unittest.TestCase):
                 (2.0, 3.0, 20, 50),
             ):
                 with self.subTest(start_time=start_time, duration=duration):
-                    images, scenes_json, count = video_node.PySceneDetectVideo().run(
+                    result = video_node.PySceneDetectVideo().run(
                         InputImpl.VideoFromFile(
                             str(video_path), start_time=start_time, duration=duration
                         ),
@@ -280,6 +281,7 @@ class VideoNodeTests(unittest.TestCase):
                         min_scene_len_frames=15,
                         luma_only=True,
                     )
+                    images, scenes_json, count = result[:3]
 
                     self.assertEqual(count, 1)
                     self.assertEqual(images.shape, (1, 32, 32, 3))
