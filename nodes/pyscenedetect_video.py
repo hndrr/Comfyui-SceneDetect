@@ -14,6 +14,7 @@ from ..utils.video_ops import (
     timecodes_to_dict,
     video_source_path,
 )
+from ..utils.scene_text import format_scenes_for_llm
 from .detector_inputs import detector_input_types
 
 
@@ -75,11 +76,13 @@ class PySceneDetectVideo:
                      "tooltip": "Detection only: 0 = automatic, 1 = full resolution, 2 = half width/height. Representative images keep their original resolution."},
                 ),
                 **detector_input_types(),
+                "prompt_template": ("STRING", {"default": "", "multiline": True}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING")
+    RETURN_NAMES = ("images", "scenes_json", "scene_count", "all_scenes_text", "per_scene_prompt_list")
+    OUTPUT_IS_LIST = (False, False, False, False, True)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -101,6 +104,7 @@ class PySceneDetectVideo:
         hist_threshold: float = 0.05,
         downscale: int = 0,
         detector_settings: str = "default",
+        prompt_template: str = "",
         **detector_options,
     ):
         fps = float(video.get_frame_rate())
@@ -210,7 +214,8 @@ class PySceneDetectVideo:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows))
+        all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
+        return (batch, scenes_json, len(rows), all_scenes_text, per_scene_prompt_list)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}
