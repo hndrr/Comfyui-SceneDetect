@@ -21,7 +21,7 @@ on:
         branches:
             - master
         paths:
-            - pyproject.toml
+            - .github/release-history.json
 
 permissions:
     contents: read
@@ -55,8 +55,8 @@ jobs:
                   RELEASE_SHA_INPUT: ${{ inputs.release_sha }}
               run: |
                   set -euo pipefail
-                  if [[ -n "$RELEASE_SHA_INPUT" && ! "$RELEASE_SHA_INPUT" =~ ^[0-9a-f]{40}$ ]]; then
-                      echo "::error::release_sha must be a full commit SHA."
+                  if [[ -n "$RELEASE_SHA_INPUT" ]] && { [[ ! "$RELEASE_SHA_INPUT" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || [[ "$RELEASE_SHA_INPUT" =~ ^0+$ ]]; }; then
+                      echo "::error::release_sha must be a full SHA-1 or SHA-256 commit ID."
                       exit 1
                   fi
                   git merge-base --is-ancestor HEAD origin/master
@@ -70,6 +70,7 @@ jobs:
               shell: bash
               env:
                   GH_TOKEN: ${{ github.token }}
+                  REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
                   BEFORE_SHA: ${{ github.event.before }}
                   RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
               run: python .github/scripts/release_notes.py prepare

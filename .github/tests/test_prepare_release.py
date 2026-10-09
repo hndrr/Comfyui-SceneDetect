@@ -93,13 +93,13 @@ class PrepareReleaseTests(unittest.TestCase):
                 self.assertEqual(history["superseded"], self.history["superseded"])
                 pull = self.github.pulls[0]
                 self.assertEqual(pull["title"], f"Release v{version}")
-                self.assertEqual(pull["head"], f"codex/release-{version}")
+                self.assertEqual(pull["head"], f"release/{version}")
                 self.assertEqual(pull["base"], "master")
                 self.assertIn(self.summary, pull["body"])
                 self.assertEqual(url, pull["html_url"])
                 commit = self.github.commits["b" * 40]
                 self.assertEqual(commit["parents"], [{"sha": SHA}])
-                self.assertEqual(set(self.github.refs), {f"codex/release-{version}"})
+                self.assertEqual(set(self.github.refs), {f"release/{version}"})
 
     def test_rerun_keeps_existing_pr_and_its_reviewed_notes(self):
         url = self.prepare()
@@ -118,7 +118,7 @@ class PrepareReleaseTests(unittest.TestCase):
             self.assertEqual(len(writes), 1)
 
     def test_existing_branch_with_other_changes_is_not_overwritten(self):
-        self.github.refs["codex/release-1.2.10"] = {"object": {"sha": "c" * 40}}
+        self.github.refs["release/1.2.10"] = {"object": {"sha": "c" * 40}}
         self.github.commits["c" * 40] = {"tree": {"sha": "different-tree"}, "parents": [{"sha": SHA}]}
         with self.assertRaisesRegex(ValueError, "already has different changes"):
             self.prepare()
