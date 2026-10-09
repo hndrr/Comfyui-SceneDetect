@@ -2,7 +2,7 @@
 
 ## Comfy Registry への公開
 
-公開設定は [publish_action.yml](.github/workflows/publish_action.yml) にあります。通常の変更は PR で `master` に集め、公開するタイミングで **Prepare release PR** を実行します。英語の要約生成・版数更新・準備 PR の作成・CI を自動で行います。要約を目視で確認して PR を `master` にマージすると、自動公開します。
+公開設定は [publish_action.yml](.github/workflows/publish_action.yml) にあります。通常の変更は PR で `master` に集め、公開するタイミングで **Prepare release PR** を実行します。英語の要約生成・版数更新・`release/1.2.4` などの準備ブランチと PR の作成・CI を自動で行います。要約を目視で確認して PR を `master` にマージすると、自動公開します。
 
 リリース手順：
 
@@ -24,13 +24,15 @@ PR 作成直後はマージ予定コミットの生成が間に合わず、CI �
 | 新機能の追加 | `minor` | `1.2.3` → `1.3.0` |
 | 互換性を壊す変更 | `major` | `1.2.3` → `2.0.0` |
 
-公開処理はキューで待機し、1件ずつ実行します。`master` で `project.version` が上がった場合だけ公開し、版数が変わらない通常の PR マージでは公開しません。公開時に追加の版数更新や `master` へのコミットは行いません。公開コミットは `master` に含まれる必要があります。
+公開処理はキューで待機し、1件ずつ実行します。自動公開の起点は `master` の `.github/release-history.json` 更新です。依存関係だけを変える通常の PR では公開ワークフローを起動しません。起動後も `project.version` が上がった場合だけ公開し、履歴の文言だけを変えた場合は公開せず終了します。公開時に追加の版数更新や `master` へのコミットは行いません。公開コミットは `master` に含まれる必要があります。
 
 ## 公開失敗時の再試行
 
 失敗した実行の **Re-run failed jobs** を使うと、同じコミットと版数で再試行できます。GitHub Release 作成だけが失敗した場合も、この方法で再試行します。
 
-**Run workflow** からやり直す場合は、ブランチを `master`、`mode` を `publish` にし、前の実行で checkout したコミットの40桁 SHA を `release_sha` に指定します。空欄では実行開始時の `master` を使用します。`master` に後続の変更が入っても公開内容が変わりません。既に同じ版のアップロードが成功している場合はパッケージを再公開せず、失敗した Release 作成ジョブの再実行か `sync-notes` を使います。
+**Run workflow** からやり直す場合は、ブランチを `master`、`mode` を `publish` にし、前の実行で checkout したコミットの完全な ID（SHA-1 は40桁、SHA-256 は64桁）を `release_sha` に指定します。空欄では実行開始時の `master` を使用します。`master` に後続の変更が入っても公開内容が変わりません。
+
+手動公開でも、対象コミットの版数が第1親コミットから増えていることを確認します。版数が同じなら公開せず終了し、下がっている場合や Registry の最新登録版より古い場合は停止します。登録済みの版は状態にかかわらず再アップロードしません。既にアップロードが成功している場合は、失敗した GitHub Release 作成ジョブの再実行か `sync-notes` を使います。
 
 ## 公開設定の管理
 
@@ -39,6 +41,7 @@ PR 作成直後はマージ予定コミットの生成が間に合わず、CI �
 - リリース準備 PR の自動作成には、Settings → Actions → General の **Allow GitHub Actions to create and approve pull requests** を有効にします。既定のトークン権限は読み取り専用のまま、準備 PR 作成ジョブに `contents: write` と `pull-requests: write`、CI 結果の表示ジョブに `checks: write` を付与します。
 - 要約生成ジョブは `contents: read` と `copilot-requests: write` で動き、標準の `GITHUB_TOKEN` で認証します。追加の PAT は不要です。前回のリリースタグからの変更差分を渡し、テストと既存リリース本文は入力から除きます。Copilot のツール利用を無効にし、リポジトリ内の追加指示ファイルは読み込みません。入力が大きすぎる場合は途中で切り捨てず停止します。
 - 公開対象の確認・Registry 公開ジョブは `contents: read` で動き、Git の認証情報は checkout 後に保持しません。
+- 公開対象の確認ジョブでは Registry の版一覧を読み取り、登録済み版や古い版のアップロードを防ぎます。認証には同じ `REGISTRY_ACCESS_TOKEN` を使い、このジョブでは Registry の書き込み API を呼びません。
 - 公開は別の `contents: read` ジョブで行います。準備ジョブが確定したコミット SHA を checkout して公開し、composite action が参照する `github.token` も読み取り専用になります。
 - 公開 Action はコミット `d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9` に固定しています。Action 本体を更新するときは、更新先の内容を確認してワークフローの SHA を書き換え、コミット・PR に含めます。
 - 公開 Action の `skip_checkout: 'true'` は、準備したバージョンを公開に使うために必要です。

@@ -40,11 +40,15 @@ def git(*arguments):
     return subprocess.check_output(["git", *arguments], text=True).strip()
 
 
+def validate_commit_sha(sha):
+    if len(sha) not in (40, 64) or not re.fullmatch(r"[0-9a-f]+", sha) or not sha.strip("0"):
+        raise ValueError("A full SHA-1 or SHA-256 commit ID is required")
+
+
 def validate_release(version, sha):
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError(f"Unsupported release version: {version}")
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise ValueError("A full release commit SHA is required")
+    validate_commit_sha(sha)
 
 
 def checked_tag(github, repository, version, sha):
@@ -188,25 +192,39 @@ def main():
         version = config["project"]["version"]
         sha = git("rev-parse", "HEAD")
         validate_release(version, sha)
-        if os.environ.get("GITHUB_EVENT_NAME") == "push":
-            before_sha = os.environ.get("BEFORE_SHA", "")
-            if not re.fullmatch(r"[0-9a-f]{40}", before_sha) or before_sha == "0" * 40:
-                raise ValueError("A previous master revision is required to validate a release")
-            try:
-                previous_source = subprocess.check_output(
-                    ["git", "show", f"{before_sha}:pyproject.toml"], text=True, stderr=subprocess.DEVNULL,
-                )
-            except subprocess.CalledProcessError:
-                raise ValueError(
-                    f"Cannot read previous master revision {before_sha}; a previous revision is required"
-                ) from None
-            previous = tomllib.loads(previous_source)["project"]["version"]
-            validate_release(previous, before_sha)
-            if version == previous:
-                write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "false"})
-                return
-            if tuple(map(int, version.split("."))) <= tuple(map(int, previous.split("."))):
-                raise ValueError("The release version must increase")
+        try:
+            before_sha = (os.environ.get("BEFORE_SHA", "") if os.environ.get("GITHUB_EVENT_NAME") == "push"
+                          else git("rev-parse", "--verify", "--quiet", "HEAD^1"))
+            validate_commit_sha(before_sha)
+        except (ValueError, subprocess.CalledProcessError):
+            raise ValueError("A previous master revision is required to validate a release") from None
+        try:
+            previous_source = subprocess.check_output(
+                ["git", "show", f"{before_sha}:pyproject.toml"], text=True, stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            raise ValueError(
+                f"Cannot read previous master revision {before_sha}; a previous revision is required"
+            ) from None
+        previous = tomllib.loads(previous_source)["project"]["version"]
+        validate_release(previous, before_sha)
+        if version == previous:
+            write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "false"})
+            return
+        if tuple(map(int, version.split("."))) <= tuple(map(int, previous.split("."))):
+            raise ValueError("The release version must increase")
+        registry = API("https://api.comfy.org", os.environ["REGISTRY_ACCESS_TOKEN"])
+        versions = registry("GET", f"/nodes/{quote(config['project']['name'], safe='')}/versions")
+        for item in versions:
+            validate_release(item["version"], sha)
+        latest = max((item["version"] for item in versions),
+                     key=lambda value: tuple(map(int, value.split("."))), default=None)
+        if latest is not None and tuple(map(int, version.split("."))) < tuple(map(int, latest.split("."))):
+            raise ValueError(f"Release {version} is older than Registry version {latest}")
+        if any(item["version"] == version for item in versions):
+            print(f"Registry version {version} already exists; skipping package upload")
+            write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "false"})
+            return
         fallback = os.environ.get("RELEASE_NOTES_INPUT") or None
         if fallback is None:
             history = json.loads(Path(".github/release-history.json").read_text(encoding="utf-8"))

@@ -2,7 +2,7 @@ name: Test release notes
 on:
     push:
         branches:
-            - 'codex/release-*'
+            - 'release/*'
         paths:
             - 'pyproject.toml'
             - '.github/release-history.json'

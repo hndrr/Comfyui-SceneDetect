@@ -38,7 +38,7 @@ def prepare_pull_request(github, repository, sha, source, history, bump, body):
     history["releases"][version] = {"body": body}
     history = json.dumps(history, ensure_ascii=False, indent=2) + "\n"
     prefix = f"/repos/{repository}"
-    branch = f"codex/release-{version}"
+    branch = f"release/{version}"
     head = quote(f"{repository.split('/')[0]}:{branch}", safe="")
     existing = github("GET", f"{prefix}/pulls?state=open&base=master&head={head}")
     if existing:
