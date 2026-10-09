@@ -2,17 +2,19 @@
 
 ## Comfy Registry への公開
 
-公開設定は [publish_action.yml](.github/workflows/publish_action.yml) にあります。通常の変更は PR で `master` に集め、公開するタイミングで **Prepare release PR** を実行します。準備時に版数を自動で上げ、短いリリース準備ブランチと PR を作ります。その PR を `master` にマージすると自動公開します。
+公開設定は [publish_action.yml](.github/workflows/publish_action.yml) にあります。通常の変更は PR で `master` に集め、公開するタイミングで **Prepare release PR** を実行します。英語の要約生成・版数更新・準備 PR の作成・CI を自動で行います。要約を目視で確認して PR を `master` にマージすると、自動公開します。
 
 リリース手順：
 
 1. Actions の **Prepare release PR** で **Run workflow** を選び、ブランチを `master` にする。
-2. `bump` は通常 `patch` のままにし、`release_notes` にリリース全体の英語の要約を入力して実行する。必要に応じて `minor` / `major` を選ぶ。
-3. 実行結果に表示された `Release v1.2.4` などの PR を開く。`pyproject.toml` の版数と `.github/release-history.json` の要約は自動で更新される。
-4. PR の要約・版数・公開対象の変更を確認し、`master` にマージする。マージコミットの公開が自動で起動する。
+2. 通常は入力を変更せずに実行する。`bump` は `patch`、`release_notes` は空欄でよい。必要に応じて `minor` / `major` を選ぶ。
+3. 実行結果に表示された `Release v1.2.4` などの PR を開き、自動生成された英語の要約を確認する。修正するときは `.github/release-history.json` の該当版の `body` を編集し、PR 本文も揃える。
+4. PR に表示される CI が成功したことを確認し、`master` にマージする。マージコミットの公開が自動で起動する。
 5. Registry の版が `Active` になり、GitHub Release のタグと本文が正しいことを確認する。アップロード成功後も Registry のスキャンは別途進む。
 
-同じ版の準備 PR が既にある場合、再実行はその PR の URL を返し、確認中の本文は上書きしません。修正が必要なら既存 PR の記録ファイルを編集します。GitHub の仕様により、Actions が作成した PR の CI は **Approve workflows to run** を選んで開始します。
+準備 PR は自動マージしません。同じ版の準備 PR が既にある場合、再実行はその PR の URL を返し、確認中の本文は上書きしません。CI は準備ワークフロー内で PR のマージ予定コミットをテストし、その結果を PR に表示します。要約を手動で修正して準備ブランチに push した場合も、通常の **test-release-notes** が自動で実行されます。CI の手動実行承認は不要です。
+
+要約には Copilot CLI の自動モデル選択を使います。Copilot Free の利用を有効にしたリポジトリ所有者の無料枠を使い、ワークフローから有料プランへの変更や追加利用予算の設定は行いません。生成は1回だけで、利用枠不足・アクセス不可・形式不正の場合は版数や PR を変更する前に停止します。生成内容を手動で用意する場合は `release_notes` に英語の要約を指定すると、Copilot を呼ばずに準備できます。
 
 | 変更 | `bump` | 版数の例 |
 |---|---|---|
@@ -32,7 +34,8 @@
 
 - 配布 ZIP では `.comfyignore` で `.github/` と `tests/` を除外します。GitHub Actions とテストはリポジトリ上で引き続き利用できます。
 - Registry の認証情報はリポジトリの Actions secret `REGISTRY_ACCESS_TOKEN` に保存します。
-- リリース準備 PR の自動作成には、Settings → Actions → General の **Allow GitHub Actions to create and approve pull requests** を有効にします。既定のトークン権限は読み取り専用のまま、準備 PR 作成ジョブだけに `contents: write` と `pull-requests: write` を付与します。
+- リリース準備 PR の自動作成には、Settings → Actions → General の **Allow GitHub Actions to create and approve pull requests** を有効にします。既定のトークン権限は読み取り専用のまま、準備 PR 作成ジョブに `contents: write` と `pull-requests: write`、CI 結果の表示ジョブに `checks: write` を付与します。
+- 要約生成ジョブは `contents: read` と `copilot-requests: write` で動き、標準の `GITHUB_TOKEN` で認証します。追加の PAT は不要です。前回のリリースタグからの変更差分を渡し、テストと既存リリース本文は入力から除きます。Copilot のツール利用を無効にし、リポジトリ内の追加指示ファイルは読み込みません。入力が大きすぎる場合は途中で切り捨てず停止します。
 - 公開対象の確認・Registry 公開ジョブは `contents: read` で動き、Git の認証情報は checkout 後に保持しません。
 - 公開は別の `contents: read` ジョブで行います。準備ジョブが確定したコミット SHA を checkout して公開し、composite action が参照する `github.token` も読み取り専用になります。
 - 公開 Action はコミット `d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9` に固定しています。Action 本体を更新するときは、更新先の内容を確認してワークフローの SHA を書き換え、コミット・PR に含めます。
@@ -43,7 +46,7 @@
 
 Registry 公開に成功した後、公開したコミットを指す `v1.2.3` などのタグと GitHub Release を作ります。更新内容は英語で統一し、利用者に影響する機能追加・修正を1〜3項目にまとめます。公開手順や削除済み版の経緯など、運用上の説明は含めません。PR タイトルの列挙や作者・PR リンクは本文に含めず、リリース全体の変更内容を説明します。
 
-**Prepare release PR** に入力した要約は、公開する版の `.github/release-history.json` に保存します。例：現在が `1.2.3` で `patch` を選ぶと、`"1.2.4": {"body": "- Fix ..."}` を追加します。要約は PR 内で編集できます。マージ後の SHA はまだ不明なので省略できます。本文がない場合は公開前に停止します。手動の `publish` 実行では `release_notes` に本文を指定でき、その入力を記録ファイルより優先します。
+自動生成または **Prepare release PR** に入力した要約は、公開する版の `.github/release-history.json` に保存します。例：現在が `1.2.3` で `patch` を選ぶと、`"1.2.4": {"body": "- Fix ..."}` を追加します。要約は PR 内で編集できます。公開する本文はこの記録ファイルの内容なので、PR 本文だけを修正しても公開本文は変わりません。マージ後の SHA はまだ不明なので省略できます。本文がない場合は公開前に停止します。手動の `publish` 実行では `release_notes` に本文を指定でき、その入力を記録ファイルより優先します。
 
 固定済み `comfy-cli` の `COMFY_NODE_CHANGELOG` と GitHub Release に、同じ要約を渡します。既存 Release の本文を編集した場合は、後続の同期でその本文を使用します。
 

@@ -1,10 +1,25 @@
 name: Test release notes
 on:
+    push:
+        branches:
+            - 'codex/release-*'
+        paths:
+            - 'pyproject.toml'
+            - '.github/release-history.json'
+    workflow_call:
+        inputs:
+            ref:
+                description: Exact revision or merge ref to test
+                type: string
+                required: true
+            expected_head:
+                description: Release PR head that the merge revision must include
+                type: string
+                required: false
     pull_request:
         paths:
             - '.github/scripts/**'
             - '.github/tests/**'
-            - '.github/release-history.json'
             - '.github/workflows/publish_action.yml'
             - '.github/workflows/prepare_release.yml'
             - '.github/workflows/test_release_notes.yml'
@@ -18,7 +33,14 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
+                  ref: ${{ inputs.ref }}
+                  fetch-depth: 2
                   persist-credentials: false
+            - name: Verify release PR revision
+              if: inputs.expected_head != ''
+              env:
+                  EXPECTED_HEAD: ${{ inputs.expected_head }}
+              run: test "$(git rev-parse HEAD^2)" = "$EXPECTED_HEAD"
             - uses: actions/setup-python@v5
               with:
                   python-version: '3.12'

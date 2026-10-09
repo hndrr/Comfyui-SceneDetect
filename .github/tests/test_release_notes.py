@@ -209,6 +209,7 @@ class ReleaseNotesTests(unittest.TestCase):
 
     def test_backfill_consolidates_deleted_version_and_preserves_old_versions(self):
         history = json.loads((Path(__file__).parents[1] / "release-history.json").read_text())
+        history["releases"] = {version: item for version, item in history["releases"].items() if item.get("sha")}
         latest = max(history["releases"], key=lambda version: tuple(map(int, version.split("."))))
         versions = [node(version, deprecated=version != latest) for version in history["releases"]]
         versions += [node("1.2.1"), dict(node("8.0.0"), status="NodeVersionStatusDeleted")]

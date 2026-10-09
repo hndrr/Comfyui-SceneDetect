@@ -1,7 +1,10 @@
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 import tomllib
 import unittest
 from unittest.mock import patch
@@ -125,6 +128,24 @@ class PrepareReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "summary is required"):
             self.prepare(summary=" \n ")
         self.assertEqual(self.github.calls, [])
+
+    def test_cli_outputs_identify_the_prepared_pr_for_automatic_ci(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            url = f"https://github.com/{REPO}/pull/123"
+            def github(method, path, data=None):
+                self.assertEqual((method, path), ("GET", f"/repos/{REPO}/pulls/123"))
+                return {"number": 123, "head": {"sha": SHA}}
+            with patch.object(prepare, "API", return_value=github), \
+                 patch.object(prepare, "prepare_pull_request", return_value=url), \
+                 patch.object(prepare, "git", return_value=SHA), \
+                 patch.dict(prepare.os.environ, {"GITHUB_REPOSITORY": REPO, "GH_TOKEN": "test-token",
+                                                "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": "",
+                                                "RELEASE_NOTES_INPUT": self.summary}), \
+                 patch("sys.argv", ["prepare_release.py"]), contextlib.redirect_stdout(io.StringIO()):
+                prepare.main()
+            self.assertIn("123", output.read_text())
+            self.assertIn(SHA, output.read_text())
 
 
 if __name__ == "__main__":
