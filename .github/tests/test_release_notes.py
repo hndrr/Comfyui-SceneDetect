@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -164,9 +165,30 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(body, self.item["changelog"])
         self.assertFalse(any(call[1].endswith("generate-notes") for call in self.github.calls))
 
+    def test_new_release_uses_the_summary_for_github_and_registry(self):
+        summary = "- Fix Registry distribution of the updated scene detection nodes."
+        body = notes.release_body(self.github, REPO, "1.2.2", SHA, summary)
+        self.sync(body)
+        self.assertEqual(self.github.releases["v1.2.2"]["body"], summary)
+        self.assertEqual(self.item["changelog"], summary)
+        self.assertFalse(any(call[1].endswith("generate-notes") for call in self.github.calls))
+
+    def test_missing_or_blank_summary_stops_before_writes(self):
+        for summary in (None, "", " \n "):
+            with self.subTest(summary=summary), self.assertRaisesRegex(ValueError, "Release notes"):
+                notes.release_body(self.github, REPO, "1.2.2", SHA, summary)
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
+        self.assertEqual(self.registry.calls, [])
+
+    def test_release_commit_resolves_summary_without_recorded_sha(self):
+        with patch.object(notes, "git", return_value=SHA):
+            self.assertEqual(notes.release_commit("1.2.4", {"1.2.4": {"body": "- Fix scene detection."}}), SHA)
+
     def test_backfill_consolidates_deleted_version_and_preserves_old_versions(self):
         history = json.loads((Path(__file__).parents[1] / "release-history.json").read_text())
-        versions = [node(version, deprecated=version != "1.2.2") for version in history["releases"]]
+        history["releases"] = {version: item for version, item in history["releases"].items() if item.get("sha")}
+        latest = max(history["releases"], key=lambda version: tuple(map(int, version.split("."))))
+        versions = [node(version, deprecated=version != latest) for version in history["releases"]]
         versions += [node("1.2.1"), dict(node("8.0.0"), status="NodeVersionStatusDeleted")]
         registry = Registry(versions)
         version_by_sha = {item["sha"]: version for version, item in history["releases"].items()}
@@ -179,11 +201,11 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(set(self.github.releases), {f"v{v}" for v in history["releases"]})
         self.assertNotIn("v1.2.1", self.github.releases)
         self.assertEqual(history["superseded"]["1.2.1"], "1.2.2")
-        self.assertEqual(self.github.releases["v1.2.2"]["make_latest"], "true")
+        self.assertEqual(self.github.releases[f"v{latest}"]["make_latest"], "true")
         for item in registry.versions:
             if item["version"] in history["releases"]:
                 self.assertEqual(item["changelog"], self.github.releases[f"v{item['version']}"]["body"])
-                self.assertEqual(item["deprecated"], item["version"] != "1.2.2")
+                self.assertEqual(item["deprecated"], item["version"] != latest)
         self.assertTrue(all(call[0] in ("GET", "PUT") for call in registry.calls))
 
     def test_api_only_treats_404_as_missing_and_hides_error_body(self):
@@ -206,6 +228,196 @@ class ReleaseNotesTests(unittest.TestCase):
             delimiter = lines[0].split("<<", 1)[1]
             self.assertEqual(lines[-1], delimiter)
             self.assertEqual("\n".join(lines[1:-1]), body)
+
+
+class PreparedReleaseTests(unittest.TestCase):
+    OBJECT_FORMAT = "sha1"
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.github = GitHub()
+        self.registry = Registry([])
+        self.sequence = 0
+        self.git("init", "-q", "--initial-branch=master", f"--object-format={self.OBJECT_FORMAT}")
+        self.before = self.commit_version("1.2.3")
+
+    def git(self, *arguments):
+        return subprocess.check_output([
+            "git", "-c", "user.name=Release test", "-c", "user.email=release@example.invalid",
+            "-c", "commit.gpgsign=false", *arguments,
+        ], cwd=self.root, text=True).strip()
+
+    def commit_version(self, version, summary=None):
+        self.sequence += 1
+        (self.root / "pyproject.toml").write_text(
+            f'[project]\nname = "scenedetect"\nversion = "{version}"\n'
+            f'description = "Metadata update {self.sequence}"\n', encoding="utf-8",
+        )
+        (self.root / ".github").mkdir(exist_ok=True)
+        releases = {} if summary is None else {version: {"body": summary}}
+        (self.root / ".github/release-history.json").write_text(
+            json.dumps({"releases": releases}), encoding="utf-8",
+        )
+        self.git("add", ".")
+        self.git("commit", "-qm", f"Update release metadata to {version}")
+        return self.git("rev-parse", "HEAD")
+
+    def prepare(self, event="push", supplied=""):
+        def api(base_url, token):
+            return self.registry if base_url == "https://api.comfy.org" else self.github
+        with contextlib.chdir(self.root), patch.object(notes, "API", side_effect=api), \
+             patch.dict(notes.os.environ, {
+                 "GITHUB_REPOSITORY": REPO, "GH_TOKEN": "test-token", "GITHUB_EVENT_NAME": event,
+                 "REGISTRY_ACCESS_TOKEN": "test-registry-token",
+                 "BEFORE_SHA": self.before, "GITHUB_OUTPUT": str(self.root / "output"),
+                 "RELEASE_NOTES_INPUT": supplied,
+             }), patch("sys.argv", ["release_notes.py", "prepare"]):
+            notes.main()
+        lines = (self.root / "output").read_text(encoding="utf-8").splitlines()
+        result = {}
+        while lines:
+            name, delimiter = lines.pop(0).split("<<", 1)
+            end = lines.index(delimiter)
+            result[name] = "\n".join(lines[:end])
+            lines = lines[end + 1:]
+        return result
+
+    def test_same_version_metadata_push_does_not_publish_or_request_notes(self):
+        self.commit_version("1.2.3")
+        self.assertEqual(self.prepare(), {"publish": "false"})
+        self.assertEqual(self.github.calls, [])
+        self.assertEqual(self.registry.calls, [])
+
+    def test_manual_metadata_only_revision_does_not_publish(self):
+        self.commit_version("1.2.3")
+        self.assertEqual(self.prepare("workflow_dispatch"), {"publish": "false"})
+        self.assertEqual(self.github.calls, [])
+        self.assertEqual(self.registry.calls, [])
+
+    def test_manual_version_decrease_stops_before_any_api_call(self):
+        self.commit_version("1.2.2", "- Fix scene detection.")
+        with self.assertRaisesRegex(ValueError, "must increase"):
+            self.prepare("workflow_dispatch")
+        self.assertEqual(self.github.calls, [])
+        self.assertEqual(self.registry.calls, [])
+        self.assertFalse((self.root / "output").exists())
+
+    def test_manual_initial_revision_requires_a_previous_revision(self):
+        with self.assertRaisesRegex(ValueError, "previous.*revision"):
+            self.prepare("workflow_dispatch")
+        self.assertEqual(self.registry.calls, [])
+
+    def test_prepare_uses_recorded_summary_and_manual_input_overrides_it(self):
+        recorded = "- Fix scene detection for trimmed inputs."
+        manual = "- Fix scene detection and representative image output."
+        self.commit_version("1.2.4", recorded)
+        self.registry = Registry([node("1.2.3")])
+        for supplied, expected in (("", recorded), (manual, manual)):
+            with self.subTest(supplied=supplied):
+                (self.root / "output").unlink(missing_ok=True)
+                self.assertEqual(self.prepare("workflow_dispatch", supplied), {
+                    "publish": "true", "version": "1.2.4", "body": expected,
+                })
+        self.assertTrue(all(call[0] == "GET" for call in self.registry.calls))
+
+    def test_existing_registry_version_is_not_uploaded_again_in_any_status(self):
+        self.commit_version("1.2.4", "- Fix scene detection.")
+        for event in ("push", "workflow_dispatch"):
+            for status in ("Active", "Pending", "Flagged", "Deleted"):
+                with self.subTest(event=event, status=status):
+                    (self.root / "output").unlink(missing_ok=True)
+                    self.registry = Registry([dict(node("1.2.4"), status=f"NodeVersionStatus{status}")])
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(self.prepare(event), {"publish": "false"})
+                    self.assertEqual(self.github.calls, [])
+                    self.assertTrue(all(call[0] == "GET" for call in self.registry.calls))
+
+    def test_release_older_than_registry_stops_before_publication(self):
+        self.commit_version("1.2.4", "- Fix scene detection.")
+        self.registry = Registry([node("1.2.10")])
+        for event in ("push", "workflow_dispatch"):
+            with self.subTest(event=event), self.assertRaisesRegex(ValueError, "older than Registry"):
+                self.prepare(event)
+        self.assertEqual(self.github.calls, [])
+        self.assertFalse((self.root / "output").exists())
+
+    def test_registry_failure_stops_before_publication(self):
+        self.commit_version("1.2.4", "- Fix scene detection.")
+        def unavailable(*arguments):
+            raise RuntimeError("Registry unavailable")
+        self.registry = unavailable
+        with self.assertRaisesRegex(RuntimeError, "Registry unavailable"):
+            self.prepare("workflow_dispatch")
+        self.assertEqual(self.github.calls, [])
+        self.assertFalse((self.root / "output").exists())
+
+    def test_version_increase_publishes_the_prepared_summary(self):
+        summary = "- Fix scene detection for trimmed inputs.\n- Improve representative image output."
+        for version in ("1.2.4", "1.2.10", "1.3.0", "2.0.0"):
+            with self.subTest(version=version):
+                (self.root / "output").unlink(missing_ok=True)
+                self.commit_version(version, summary)
+                self.assertEqual(self.prepare(), {"publish": "true", "version": version, "body": summary})
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
+
+    def test_version_decrease_stops_before_any_api_call(self):
+        self.commit_version("1.2.2", "- Fix scene detection.")
+        with self.assertRaisesRegex(ValueError, "must increase"):
+            self.prepare()
+        self.assertEqual(self.github.calls, [])
+        self.assertFalse((self.root / "output").exists())
+
+    def test_missing_or_unreadable_previous_revision_stops_with_a_clear_error(self):
+        self.commit_version("1.2.4", "- Fix scene detection.")
+        for before in ("0" * 40, "0" * 64, "f" * 40, "f" * 64, "", "invalid"):
+            with self.subTest(before=before):
+                self.before = before
+                with self.assertRaisesRegex(ValueError, "previous.*revision") as caught:
+                    self.prepare()
+                if before.startswith("f"):
+                    self.assertTrue(caught.exception.__suppress_context__)
+                self.assertEqual(self.github.calls, [])
+                self.assertFalse((self.root / "output").exists())
+
+    def test_version_increase_requires_a_nonempty_summary(self):
+        for summary in (None, "", " \n "):
+            with self.subTest(summary=summary):
+                self.commit_version("1.2.4", summary)
+                with self.assertRaisesRegex(ValueError, "Release notes"):
+                    self.prepare()
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
+        self.assertFalse((self.root / "output").exists())
+
+    def test_backfill_resolves_a_prepared_release_from_its_tag(self):
+        summary = "- Fix scene detection for trimmed inputs."
+        sha = self.commit_version("1.2.4", summary)
+        self.git("tag", "-a", "v1.2.4", "-m", "Release 1.2.4")
+        self.commit_version("1.2.4", "- Unreleased changes after publication.")
+        self.github.refs["v1.2.4"] = {"object": {"type": "commit", "sha": sha}}
+        self.github.releases["v1.2.4"] = {"draft": False, "body": summary}
+        item = node("1.2.4", deprecated=True)
+        registry = Registry([item])
+        with contextlib.chdir(self.root), contextlib.redirect_stdout(io.StringIO()):
+            notes.backfill(self.github, registry, REPO, "hndr", "scenedetect", {}, {})
+        self.assertEqual(item["changelog"], summary)
+        self.assertTrue(item["deprecated"])
+        self.assertFalse(any(call[0] == "POST" for call in self.github.calls))
+
+
+class Sha256PreparedReleaseTests(PreparedReleaseTests):
+    OBJECT_FORMAT = "sha256"
+
+
+class CommitIdTests(unittest.TestCase):
+    def test_supported_object_formats_require_full_nonzero_lowercase_hex_ids(self):
+        for size in (40, 64):
+            notes.validate_commit_sha("a" * size)
+        for value in ("", "a" * 7, "a" * 41, "a" * 63, "a" * 65, "0" * 40,
+                      "0" * 64, "g" * 40, "A" * 64, "HEAD", "refs/heads/master"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                notes.validate_commit_sha(value)
 
 
 if __name__ == "__main__":
