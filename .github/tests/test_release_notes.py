@@ -322,6 +322,18 @@ class PreparedReleaseTests(unittest.TestCase):
         self.assertEqual(self.github.calls, [])
         self.assertFalse((self.root / "output").exists())
 
+    def test_missing_or_unreadable_previous_revision_stops_with_a_clear_error(self):
+        self.commit_version("1.2.4", "- Fix scene detection.")
+        for before in ("0" * 40, "f" * 40, "", "invalid"):
+            with self.subTest(before=before):
+                self.before = before
+                with self.assertRaisesRegex(ValueError, "previous.*revision") as caught:
+                    self.prepare()
+                if before == "f" * 40:
+                    self.assertTrue(caught.exception.__suppress_context__)
+                self.assertEqual(self.github.calls, [])
+                self.assertFalse((self.root / "output").exists())
+
     def test_version_increase_requires_a_nonempty_summary(self):
         for summary in (None, "", " \n "):
             with self.subTest(summary=summary):

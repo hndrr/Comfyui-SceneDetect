@@ -189,8 +189,18 @@ def main():
         sha = git("rev-parse", "HEAD")
         validate_release(version, sha)
         if os.environ.get("GITHUB_EVENT_NAME") == "push":
-            before_sha = os.environ["BEFORE_SHA"]
-            previous = tomllib.loads(git("show", f"{before_sha}:pyproject.toml"))["project"]["version"]
+            before_sha = os.environ.get("BEFORE_SHA", "")
+            if not re.fullmatch(r"[0-9a-f]{40}", before_sha) or before_sha == "0" * 40:
+                raise ValueError("A previous master revision is required to validate a release")
+            try:
+                previous_source = subprocess.check_output(
+                    ["git", "show", f"{before_sha}:pyproject.toml"], text=True, stderr=subprocess.DEVNULL,
+                )
+            except subprocess.CalledProcessError:
+                raise ValueError(
+                    f"Cannot read previous master revision {before_sha}; a previous revision is required"
+                ) from None
+            previous = tomllib.loads(previous_source)["project"]["version"]
             validate_release(previous, before_sha)
             if version == previous:
                 write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "false"})

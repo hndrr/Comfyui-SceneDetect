@@ -132,4 +132,6 @@ jobs:
                       'output': {'title': f'Release preparation CI: {result}',
                                  'summary': 'Review the English summary before merging this release PR.'},
                   })
+                  if conclusion != 'success':
+                      raise SystemExit('Release preparation CI did not succeed.')
                   PY
