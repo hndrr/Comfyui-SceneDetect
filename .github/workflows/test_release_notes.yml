@@ -2,10 +2,11 @@ name: Test release notes
 on:
     pull_request:
         paths:
-            - '.github/scripts/release_notes.py'
+            - '.github/scripts/**'
             - '.github/tests/**'
             - '.github/release-history.json'
             - '.github/workflows/publish_action.yml'
+            - '.github/workflows/prepare_release.yml'
             - '.github/workflows/test_release_notes.yml'
 
 permissions:

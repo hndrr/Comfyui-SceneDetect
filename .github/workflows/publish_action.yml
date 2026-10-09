@@ -3,23 +3,25 @@ on:
     workflow_dispatch:
         inputs:
             mode:
-                description: Publish the current version, or only sync existing release notes
+                description: Publish a prepared release, or sync existing release notes
                 type: choice
                 options:
                     - publish
                     - sync-notes
                 default: publish
+            release_sha:
+                description: Optional merged release commit SHA; defaults to the selected master revision
+                type: string
+                required: false
             release_notes:
-                description: Optional release notes for manual publishing
+                description: Optional release summary override for manual publishing
                 type: string
                 required: false
     push:
         branches:
             - master
-        paths-ignore:
-            - '.github/**'
-            - README.md
-            - MAINTAINERS.md
+        paths:
+            - pyproject.toml
 
 permissions:
     contents: read
@@ -32,134 +34,43 @@ concurrency:
 jobs:
     prepare-release:
         name: Prepare Registry release
-        if: github.ref == 'refs/heads/master' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'publish')
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.mode == 'publish')
         runs-on: ubuntu-latest
-        permissions:
-            contents: write
         outputs:
-            publish: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.publish == 'true' }}
+            publish: ${{ steps.notes.outputs.publish }}
             release_sha: ${{ steps.revision.outputs.sha }}
             release_version: ${{ steps.notes.outputs.version }}
             release_notes: ${{ steps.notes.outputs.body }}
         steps:
-            - name: Check out code
+            - name: Check out release commit
               uses: actions/checkout@v4
               with:
-                  ref: master
+                  ref: ${{ inputs.release_sha || github.sha }}
                   fetch-depth: 0
-            - name: Set up Python for version update
+                  persist-credentials: false
+            - name: Verify and record release commit
+              id: revision
+              shell: bash
+              env:
+                  RELEASE_SHA_INPUT: ${{ inputs.release_sha }}
+              run: |
+                  set -euo pipefail
+                  if [[ -n "$RELEASE_SHA_INPUT" && ! "$RELEASE_SHA_INPUT" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "::error::release_sha must be a full commit SHA."
+                      exit 1
+                  fi
+                  git merge-base --is-ancestor HEAD origin/master
+                  echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            - name: Set up Python
               uses: actions/setup-python@v5
               with:
                   python-version: '3.12'
-            - name: Increment and commit patch version
-              id: version
-              if: github.event_name == 'push'
-              shell: bash
-              env:
-                  BEFORE_SHA: ${{ github.event.before }}
-                  PUSH_SHA: ${{ github.sha }}
-              run: |
-                  set -euo pipefail
-                  git config user.name "github-actions[bot]"
-                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-                  for attempt in 1 2 3; do
-                      git fetch origin master
-                      git reset --hard origin/master
-                      python - <<'PY' > "$RUNNER_TEMP/registry-version"
-                  from pathlib import Path
-                  import os
-                  import re
-                  import subprocess
-                  import tomllib
-
-                  path = Path("pyproject.toml")
-                  source = path.read_text(encoding="utf-8")
-                  version = tomllib.loads(source)["project"]["version"]
-
-                  def version_at(revision):
-                      source = subprocess.check_output(["git", "show", f"{revision}:pyproject.toml"], text=True)
-                      return tomllib.loads(source)["project"]["version"]
-
-                  before = version_at(os.environ["BEFORE_SHA"])
-                  pushed = version_at(os.environ["PUSH_SHA"])
-                  if pushed != before and tuple(map(int, pushed.split("."))) <= tuple(map(int, before.split("."))):
-                      raise SystemExit("The explicit project.version must increase")
-
-                  prepared = subprocess.check_output(
-                      ["git", "log", "--first-parent", "-1", "--format=%H", "--grep=^Registry-Source: "], text=True,
-                  ).strip()
-                  baseline = before
-                  if prepared:
-                      message = subprocess.check_output(["git", "show", "-s", "--format=%B", prepared], text=True)
-                      source_match = re.search(r"(?m)^Registry-Source: ([0-9a-f]{40})$", message)
-                      if source_match is None:
-                          raise SystemExit("Invalid Registry-Source: expected a 40-character commit SHA")
-                      source_sha = source_match[1]
-                      covered = subprocess.run(["git", "merge-base", "--is-ancestor", os.environ["PUSH_SHA"], source_sha])
-                      if covered.returncode == 0:
-                          print("skip")
-                          raise SystemExit(0)
-                      if covered.returncode != 1:
-                          raise SystemExit("Could not compare the prepared release source")
-                      baseline = version_at(prepared)
-
-                  current_parts = tuple(map(int, version.split(".")))
-                  baseline_parts = tuple(map(int, baseline.split(".")))
-                  if current_parts < baseline_parts:
-                      raise SystemExit("The current project.version must not decrease")
-                  if current_parts > baseline_parts:
-                      print(version)
-                      raise SystemExit(0)
-
-                  major, minor, patch = current_parts
-                  new_version = f"{major}.{minor}.{patch + 1}"
-                  project = re.search(r"(?ms)^\[project\][^\n]*\n.*?(?=^\[|\Z)", source)
-                  updated, count = re.subn(
-                      rf'''(?m)^([ \t]*version[ \t]*=[ \t]*)(["']){re.escape(version)}\2''',
-                      lambda match: f"{match[1]}{match[2]}{new_version}{match[2]}",
-                      project[0],
-                  )
-                  if count != 1:
-                      raise SystemExit("Expected one project.version assignment")
-                  path.write_text(source[:project.start()] + updated + source[project.end():], encoding="utf-8")
-                  print(new_version)
-                  PY
-                      version=$(cat "$RUNNER_TEMP/registry-version")
-                      if [ "$version" = "skip" ]; then
-                          echo "This push is already included in a prepared release."
-                          echo "publish=false" >> "$GITHUB_OUTPUT"
-                          exit 0
-                      fi
-                      source_sha=$(git rev-parse HEAD)
-                      git add pyproject.toml
-                      git commit --allow-empty -m "Prepare registry version $version" -m "Registry-Source: $source_sha"
-                      # GITHUB_TOKEN pushes do not trigger another publish run.
-                      if git push origin HEAD:master; then
-                          echo "publish=true" >> "$GITHUB_OUTPUT"
-                          exit 0
-                      fi
-                      echo "::warning::Version push failed; retrying ($attempt/3)."
-                  done
-                  echo "::error::Could not commit the registry version to master."
-                  exit 1
-            - name: Remove GitHub write credentials
-              if: always()
-              shell: bash
-              run: |
-                  if git config --local --get-all http.https://github.com/.extraheader > /dev/null; then
-                      git config --local --unset-all http.https://github.com/.extraheader
-                  fi
-            - name: Record release commit
-              id: revision
-              shell: bash
-              run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             - name: Prepare shared release notes
               id: notes
-              if: github.event_name == 'workflow_dispatch' || steps.version.outputs.publish == 'true'
               shell: bash
               env:
                   GH_TOKEN: ${{ github.token }}
+                  BEFORE_SHA: ${{ github.event.before }}
                   RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
               run: python .github/scripts/release_notes.py prepare
 
@@ -168,8 +79,6 @@ jobs:
         needs: prepare-release
         if: needs.prepare-release.outputs.publish == 'true'
         runs-on: ubuntu-latest
-        permissions:
-            contents: read
         steps:
             - name: Check out prepared release
               uses: actions/checkout@v4
@@ -225,6 +134,7 @@ jobs:
             - name: Check out release history
               uses: actions/checkout@v4
               with:
+                  ref: ${{ github.sha }}
                   fetch-depth: 0
                   persist-credentials: false
             - name: Set up Python

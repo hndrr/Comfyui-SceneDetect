@@ -22,6 +22,10 @@
     "1.2.2": {
       "sha": "9ba7a4d0521659ee5ee68e1aeb4a33edb0e9e320",
       "body": "- Add hash and histogram detectors and detection downscaling.\n- Add custom settings for adaptive detection, color and edge weights, and fades.\n- Fix empty results for videos with no scene cuts, including trimmed inputs."
+    },
+    "1.2.3": {
+      "sha": "9dddcd2a6c921060ddefe305e01576799af4e79f",
+      "body": "- Fix Comfy Registry distribution of scene detection updates by excluding development-only files from published packages.\n- Keep release descriptions consistent between GitHub Releases and Comfy Registry."
     }
   }
 }
