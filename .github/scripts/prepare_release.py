@@ -8,7 +8,20 @@ import re
 import tomllib
 from urllib.parse import quote
 
-from release_notes import API, git, validate_release
+from release_notes import API, git, validate_release, write_outputs
+
+
+def set_project_version(source, current, version):
+    project = re.search(r"(?ms)^\[project\][^\n]*\n.*?(?=^\[|\Z)", source)
+    if project is None:
+        raise ValueError("Expected a [project] section")
+    updated, count = re.subn(
+        rf'''(?m)^([ \t]*version[ \t]*=[ \t]*)(["']){re.escape(current)}\2''',
+        lambda match: f"{match[1]}{match[2]}{version}{match[2]}", project[0],
+    )
+    if count != 1:
+        raise ValueError("Expected one project.version assignment")
+    return source[:project.start()] + updated + source[project.end():]
 
 
 def prepare_pull_request(github, repository, sha, source, history, bump, body):
@@ -20,16 +33,7 @@ def prepare_pull_request(github, repository, sha, source, history, bump, body):
     major, minor, patch = map(int, current.split("."))
     versions = {"patch": f"{major}.{minor}.{patch + 1}", "minor": f"{major}.{minor + 1}.0", "major": f"{major + 1}.0.0"}
     version = versions[bump]
-    project = re.search(r"(?ms)^\[project\][^\n]*\n.*?(?=^\[|\Z)", source)
-    if project is None:
-        raise ValueError("Expected a [project] section")
-    updated, count = re.subn(
-        rf'''(?m)^([ \t]*version[ \t]*=[ \t]*)(["']){re.escape(current)}\2''',
-        lambda match: f"{match[1]}{match[2]}{version}{match[2]}", project[0],
-    )
-    if count != 1:
-        raise ValueError("Expected one project.version assignment")
-    source = source[:project.start()] + updated + source[project.end():]
+    source = set_project_version(source, current, version)
     history = json.loads(history)
     history["releases"][version] = {"body": body}
     history = json.dumps(history, ensure_ascii=False, indent=2) + "\n"
@@ -76,6 +80,12 @@ def main():
         arguments.bump, os.environ["RELEASE_NOTES_INPUT"],
     )
     print(url)
+    number = url.rsplit("/", 1)[1]
+    pull = github("GET", f"/repos/{os.environ['GITHUB_REPOSITORY']}/pulls/{number}")
+    if os.environ.get("GITHUB_OUTPUT"):
+        write_outputs(os.environ["GITHUB_OUTPUT"], {
+            "pull_number": str(pull["number"]), "head_sha": pull["head"]["sha"],
+        })
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write(f"Release preparation PR: {url}\n")
