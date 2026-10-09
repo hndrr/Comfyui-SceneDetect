@@ -40,11 +40,15 @@ def git(*arguments):
     return subprocess.check_output(["git", *arguments], text=True).strip()
 
 
+def validate_commit_sha(sha):
+    if len(sha) not in (40, 64) or not re.fullmatch(r"[0-9a-f]+", sha) or not sha.strip("0"):
+        raise ValueError("A full SHA-1 or SHA-256 commit ID is required")
+
+
 def validate_release(version, sha):
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError(f"Unsupported release version: {version}")
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise ValueError("A full release commit SHA is required")
+    validate_commit_sha(sha)
 
 
 def checked_tag(github, repository, version, sha):
@@ -82,18 +86,19 @@ def existing_release(github, repository, version):
 
 def release_body(github, repository, version, sha, fallback=None):
     ref = checked_tag(github, repository, version, sha)
-    prefix = f"/repos/{repository}"
     release = existing_release(github, repository, version)
     if release is not None:
         if ref is None:
             raise ValueError(f"Release v{version} has no matching published tag")
         return (release.get("body") or "").strip()
     if fallback is not None:
+        if not fallback.strip():
+            raise ValueError(f"Release notes for {version} must not be empty")
         return fallback.strip()
-    notes = github("POST", f"{prefix}/releases/generate-notes", {
-        "tag_name": f"v{version}", "target_commitish": sha,
-    })
-    return notes["body"].strip()
+    raise ValueError(
+        f"Release notes for {version} are required: add an English summary to "
+        ".github/release-history.json or provide the release_notes workflow input"
+    )
 
 
 def sync_release(github, registry, repository, publisher, node_id, node_version, sha, body, latest=True):
@@ -136,9 +141,11 @@ def registered_versions(registry, node_id):
 
 
 def release_commit(version, history):
-    if version in history:
+    if history.get(version, {}).get("sha"):
         return history[version]["sha"]
     sha = git("log", "--first-parent", "-1", "--format=%H", f"--grep=^Prepare registry version {re.escape(version)}$")
+    if not sha and git("tag", "--list", f"v{version}"):
+        sha = git("rev-parse", f"refs/tags/v{version}^{{commit}}")
     if not sha:
         raise ValueError(f"No verified release commit is recorded for {version}")
     return sha
@@ -184,9 +191,46 @@ def main():
     if arguments.mode == "prepare":
         version = config["project"]["version"]
         sha = git("rev-parse", "HEAD")
+        validate_release(version, sha)
+        try:
+            before_sha = (os.environ.get("BEFORE_SHA", "") if os.environ.get("GITHUB_EVENT_NAME") == "push"
+                          else git("rev-parse", "--verify", "--quiet", "HEAD^1"))
+            validate_commit_sha(before_sha)
+        except (ValueError, subprocess.CalledProcessError):
+            raise ValueError("A previous master revision is required to validate a release") from None
+        try:
+            previous_source = subprocess.check_output(
+                ["git", "show", f"{before_sha}:pyproject.toml"], text=True, stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            raise ValueError(
+                f"Cannot read previous master revision {before_sha}; a previous revision is required"
+            ) from None
+        previous = tomllib.loads(previous_source)["project"]["version"]
+        validate_release(previous, before_sha)
+        if version == previous:
+            write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "false"})
+            return
+        if tuple(map(int, version.split("."))) <= tuple(map(int, previous.split("."))):
+            raise ValueError("The release version must increase")
+        registry = API("https://api.comfy.org", os.environ["REGISTRY_ACCESS_TOKEN"])
+        versions = registry("GET", f"/nodes/{quote(config['project']['name'], safe='')}/versions")
+        for item in versions:
+            validate_release(item["version"], sha)
+        latest = max((item["version"] for item in versions),
+                     key=lambda value: tuple(map(int, value.split("."))), default=None)
+        if latest is not None and tuple(map(int, version.split("."))) < tuple(map(int, latest.split("."))):
+            raise ValueError(f"Release {version} is older than Registry version {latest}")
+        if any(item["version"] == version for item in versions):
+            print(f"Registry version {version} already exists; skipping package upload")
+            write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "false"})
+            return
         fallback = os.environ.get("RELEASE_NOTES_INPUT") or None
+        if fallback is None:
+            history = json.loads(Path(".github/release-history.json").read_text(encoding="utf-8"))
+            fallback = history["releases"].get(version, {}).get("body")
         body = release_body(github, repository, version, sha, fallback)
-        write_outputs(os.environ["GITHUB_OUTPUT"], {"version": version, "body": body})
+        write_outputs(os.environ["GITHUB_OUTPUT"], {"publish": "true", "version": version, "body": body})
         return
     registry = API("https://api.comfy.org", os.environ["REGISTRY_ACCESS_TOKEN"])
     publisher, node_id = config["tool"]["comfy"]["PublisherId"], config["project"]["name"]

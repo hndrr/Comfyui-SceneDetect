@@ -1,0 +1,137 @@
+name: Prepare release PR
+on:
+    workflow_dispatch:
+        inputs:
+            bump:
+                description: Version increment
+                type: choice
+                options:
+                    - patch
+                    - minor
+                    - major
+                default: patch
+            release_notes:
+                description: Optional English summary override; defaults to automatic generation
+                type: string
+                required: false
+
+permissions:
+    contents: read
+
+concurrency:
+    group: comfy-release-preparation
+    cancel-in-progress: false
+    queue: max
+
+jobs:
+    generate-notes:
+        if: github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            copilot-requests: write
+        outputs:
+            body: ${{ steps.notes.outputs.body }}
+        steps:
+            - name: Check out release changes
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Set up Node for Copilot CLI
+              if: inputs.release_notes == ''
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+            - name: Install Copilot CLI
+              if: inputs.release_notes == ''
+              run: npm install --global @github/copilot@1.0.94
+            - name: Generate shared English summary
+              id: notes
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
+              run: python .github/scripts/generate_release_notes.py
+
+    prepare-release-pr:
+        needs: generate-notes
+        if: github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            pull-requests: write
+        outputs:
+            pull_number: ${{ steps.prepare.outputs.pull_number }}
+            head_sha: ${{ steps.prepare.outputs.head_sha }}
+        steps:
+            - name: Check out release base
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Create release preparation PR
+              id: prepare
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_BUMP: ${{ inputs.bump }}
+                  RELEASE_NOTES_INPUT: ${{ needs.generate-notes.outputs.body }}
+              run: python .github/scripts/prepare_release.py --bump "$RELEASE_BUMP"
+
+    test-release:
+        needs: prepare-release-pr
+        uses: ./.github/workflows/test_release_notes.yml
+        with:
+            ref: refs/pull/${{ needs.prepare-release-pr.outputs.pull_number }}/merge
+            expected_head: ${{ needs.prepare-release-pr.outputs.head_sha }}
+
+    report-validation:
+        needs: [prepare-release-pr, test-release]
+        if: always() && needs.prepare-release-pr.result == 'success'
+        runs-on: ubuntu-latest
+        permissions:
+            checks: write
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Show validation result on release PR
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_HEAD_SHA: ${{ needs.prepare-release-pr.outputs.head_sha }}
+                  TEST_RESULT: ${{ needs.test-release.result }}
+              run: |
+                  python - <<'PY'
+                  import os
+                  import sys
+                  sys.path.insert(0, '.github/scripts')
+                  from release_notes import API
+                  result = os.environ['TEST_RESULT']
+                  conclusion = result if result in ('success', 'cancelled') else 'failure'
+                  github = API(os.environ['GITHUB_API_URL'], os.environ['GH_TOKEN'])
+                  repository = os.environ['GITHUB_REPOSITORY']
+                  url = f"{os.environ['GITHUB_SERVER_URL']}/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+                  github('POST', f'/repos/{repository}/check-runs', {
+                      'name': 'Release preparation validation',
+                      'head_sha': os.environ['RELEASE_HEAD_SHA'],
+                      'status': 'completed', 'conclusion': conclusion, 'details_url': url,
+                      'output': {'title': f'Release preparation CI: {result}',
+                                 'summary': 'Review the English summary before merging this release PR.'},
+                  })
+                  if conclusion != 'success':
+                      raise SystemExit('Release preparation CI did not succeed.')
+                  PY
