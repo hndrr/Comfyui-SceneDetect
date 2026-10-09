@@ -33,6 +33,7 @@
 
 ## 公開設定の管理
 
+- 配布 ZIP では `.comfyignore` で `.github/` と `tests/` を除外します。GitHub Actions とテストはリポジトリ上で引き続き利用できます。
 - Registry の認証情報はリポジトリの Actions secret `REGISTRY_ACCESS_TOKEN` に保存します。
 - バージョン準備ジョブは `contents: write` 権限で `master` に push します。Git の書き込み認証情報は準備ジョブの終了前に削除します。
 - 公開は別の `contents: read` ジョブで行います。準備ジョブが確定したコミット SHA を checkout して公開し、composite action が参照する `github.token` も読み取り専用になります。
