@@ -1,0 +1,49 @@
+name: Prepare release PR
+on:
+    workflow_dispatch:
+        inputs:
+            bump:
+                description: Version increment
+                type: choice
+                options:
+                    - patch
+                    - minor
+                    - major
+                default: patch
+            release_notes:
+                description: English summary of the changes in this release
+                type: string
+                required: true
+
+permissions:
+    contents: read
+
+concurrency:
+    group: comfy-release-preparation
+    cancel-in-progress: false
+    queue: max
+
+jobs:
+    prepare-release-pr:
+        if: github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            pull-requests: write
+        steps:
+            - name: Check out release base
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+            - name: Create release preparation PR
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_BUMP: ${{ inputs.bump }}
+                  RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
+              run: python .github/scripts/prepare_release.py --bump "$RELEASE_BUMP"
