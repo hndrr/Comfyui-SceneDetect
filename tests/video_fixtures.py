@@ -3,7 +3,7 @@ from fractions import Fraction
 import numpy as np
 
 
-def write_timing_video(path, *, vfr=False):
+def write_timing_video(path, *, vfr=False, audio=False):
     import av
 
     with av.open(str(path), "w") as container:
@@ -11,6 +11,9 @@ def write_timing_video(path, *, vfr=False):
         stream.width = stream.height = 64
         stream.pix_fmt = "yuv420p"
         stream.time_base = stream.codec_context.time_base = Fraction(1, 300)
+        if audio:
+            audio_stream = container.add_stream("aac", rate=48000)
+            audio_stream.layout = "stereo"
         for index in range(60):
             frame = av.VideoFrame.from_ndarray(
                 np.full((64, 64, 3), 0 if index < 30 else 255, dtype=np.uint8),
@@ -25,3 +28,14 @@ def write_timing_video(path, *, vfr=False):
                 container.mux(packet)
         for packet in stream.encode():
             container.mux(packet)
+        if audio:
+            for index in range(94):
+                frame = av.AudioFrame.from_ndarray(
+                    np.zeros((2, 1024), dtype=np.float32), format="fltp", layout="stereo",
+                )
+                frame.sample_rate = 48000
+                frame.pts = index * 1024
+                for packet in audio_stream.encode(frame):
+                    container.mux(packet)
+            for packet in audio_stream.encode():
+                container.mux(packet)

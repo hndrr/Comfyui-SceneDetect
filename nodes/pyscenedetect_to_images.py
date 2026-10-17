@@ -9,6 +9,7 @@ from ..utils.video_ops import (
     detect_scenes_from_video,
     timecodes_to_dict,
     pick_frame_index,
+    pick_frame_timecode,
     resize_keep_ar,
     frame_to_tensor_bhwc,
 )
@@ -128,10 +129,17 @@ class PySceneDetectToImages:
                 return float(val)
             return val
 
-        video_info_json = {k: _jsonable(v) for k, v in video_info.items()}
+        timecodes = video_info.get("scenedetect_timecodes")
+        video_info_json = {
+            k: _jsonable(v) for k, v in video_info.items()
+            if k not in ("scenedetect_timecodes", "scenedetect_end_position")
+        }
         settings = DetectorSettings(**detector_options) if detector_settings == "custom" else None
 
-        video = TensorVideoStream(image, fps)
+        video = TensorVideoStream(
+            image, fps, timecodes=timecodes,
+            end_position=video_info.get("scenedetect_end_position"),
+        )
         scene_list, fps_detected = detect_scenes_from_video(
             video,
             method,
@@ -158,8 +166,14 @@ class PySceneDetectToImages:
                 thumbs_dir = os.path.join(os.getcwd(), "scene_thumbs")
             os.makedirs(thumbs_dir, exist_ok=True)
 
-        for row in rows:
-            fidx = pick_frame_index(row, representative)
+        for scene, row in zip(scene_list, rows):
+            if timecodes is not None:
+                fidx = video.frame_index_at(pick_frame_timecode(scene, representative))
+                first = video.frame_index_at(scene[0])
+                last = max(first, video.frame_index_at(scene[1]) - 1)
+                fidx = min(max(first, fidx), last)
+            else:
+                fidx = pick_frame_index(row, representative)
             if fidx < 0 or fidx >= image.shape[0]:
                 continue
             frame = video.frame_at(fidx)
