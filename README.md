@@ -132,7 +132,7 @@ To use PyAV with Legacy, replace only VHS's loader with this node. Connect outpu
 
 - `video`: Select or upload a video from ComfyUI's input directory.
 - `backend`: `pyav` (default) or `opencv`, passed to PySceneDetect's `open_video`. Availability, decoding errors, and backend fallback follow PySceneDetect.
-- `load_audio`: Decode audio using ComfyUI's audio loader (requires `av`); silent videos return `None`. Disable when audio is unnecessary.
+- `load_audio`: Decode audio using ComfyUI's audio loader (requires `av`); silent videos return `None`. Missing audio dependencies produce a warning and `None` audio without failing video loading. Disable when audio is unnecessary.
 
 This loader reads the full video at its original size without resampling. It does not implement VHS's forced frame rate, skip/cap, resizing, VAE, format, or meta-batch controls. It is an output-compatible replacement, not a replacement for every VHS feature.
 
@@ -193,6 +193,8 @@ Existing workflows containing `PySceneDetectToImages` continue to load as the Le
 ## Memory Behavior
 
 The recommended node receives a lazy `VIDEO` object from ComfyUI's built-in loader. PySceneDetect reads the original compressed file directly, and only the selected representative frames are returned as an `IMAGE` batch. It does not create a full float32 frame batch.
+
+Representative extraction makes a second sequential decoding pass through PySceneDetect. It selects actual decoded PTS within each scene's start-inclusive/end-exclusive bounds, including one-frame and VFR scenes; it does not change upstream scene boundaries. Legacy's timestamp-aware loader retains uint8 frames until allocating the float32 output batch, avoiding two full float32 batches during concatenation. The full Legacy output batch still needs to fit in memory.
 
 The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDetect processes that batch one frame at a time without creating full RGB/BGR copies. For new workflows, use the built-in `Load Video` path to avoid the VHS batch allocation entirely.
 

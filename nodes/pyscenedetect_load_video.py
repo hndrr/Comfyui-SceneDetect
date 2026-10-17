@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import os
 
+import comfy.model_management as model_management
 import folder_paths
 import torch
 from scenedetect import open_video
@@ -37,16 +39,26 @@ class PySceneDetectLoadVideo:
         width, height = stream.frame_size
         duration = stream.duration
         frames, timecodes = [], []
-        while True:
-            frame = stream.read()
-            if frame is False:
-                break
-            frames.append(frame_to_tensor_bhwc(frame))
-            timecodes.append(stream.position)
+        try:
+            while True:
+                model_management.throw_exception_if_processing_interrupted()
+                frame = stream.read()
+                if frame is False:
+                    break
+                frames.append(frame)
+                timecodes.append(stream.position)
+            end_position = stream.position
+        finally:
+            del stream
         if not frames:
             raise ValueError("No video frames decoded.")
 
-        images = torch.cat(frames, dim=0)
+        # Retain uint8 frames, not a second full float32 batch during concatenation.
+        images = torch.empty((len(frames), *frames[0].shape), dtype=torch.float32, device="cpu")
+        for index, frame in enumerate(frames):
+            model_management.throw_exception_if_processing_interrupted()
+            images[index].copy_(frame_to_tensor_bhwc(frame)[0])
+            frames[index] = None
         video_info = {
             "source_fps": fps,
             "source_frame_count": duration.frame_num,
@@ -60,21 +72,27 @@ class PySceneDetectLoadVideo:
             "loaded_height": int(images.shape[1]),
             # Runtime-only timing accompanies the batch; never reconstruct PTS from FPS.
             "scenedetect_timecodes": tuple(timecodes),
-            "scenedetect_end_position": stream.position,
+            "scenedetect_end_position": end_position,
         }
-        del stream, frames
+        del frames
 
         audio = None
         if load_audio:
             # Audio is optional; the video backend and its fallback remain upstream-owned.
-            import av
-            with av.open(path) as container:
-                has_audio = bool(container.streams.audio)
-            if has_audio:
-                from comfy_extras.nodes_audio import load
+            try:
+                import av
+                with av.open(path) as container:
+                    has_audio = bool(container.streams.audio)
+                if has_audio:
+                    from comfy_extras.nodes_audio import load
 
-                waveform, sample_rate = load(path)
-                audio = {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
+                    waveform, sample_rate = load(path)
+                    audio = {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
+            except ImportError as exc:
+                logging.warning(
+                    "PySceneDetect: audio skipped (%s). Install PyAV and a ComfyUI "
+                    "version with audio support, or disable load_audio.", exc,
+                )
 
         return images, len(images), audio, video_info
 

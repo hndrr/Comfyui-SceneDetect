@@ -126,6 +126,35 @@ class VideoNodeTests(unittest.TestCase):
                 thumbnail = cv2.imread(str(Path(tmpdir) / backend / "scene_001_f0.jpg"))
                 self.assertEqual(thumbnail.shape, (32, 32, 3))
 
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_vfr_short_scenes_keep_all_representatives_inside_scene(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "short-vfr.mp4"
+            write_timing_video(path, vfr=True, short_scenes=True)
+            for backend in ("opencv", "pyav"):
+                upstream = detect(
+                    str(path), ContentDetector(threshold=10.0, min_scene_len=1, luma_only=True),
+                    start_in_scene=True, backend=backend,
+                )
+                for representative in ("start", "middle", "end"):
+                    with self.subTest(backend=backend, representative=representative):
+                        with patch.object(video_node.folder_paths, "get_output_directory", return_value=tmpdir):
+                            images, payload, count = video_node.PySceneDetectVideo().run(
+                                InputImpl.VideoFromFile(str(path)), "content", 10.0, 0.0, 1, True,
+                                representative=representative, backend=backend,
+                                write_thumbs=True, thumbs_dir=f"{backend}-{representative}",
+                            )
+                        self.assertEqual(count, len(upstream))
+                        self.assertEqual(len(images), count)
+                        self.assertEqual(count, 6)
+                        for image, expected in zip(images, (0, 255, 128, 30, 200, 70)):
+                            self.assertAlmostEqual(image.mean().item() * 255, expected, delta=3)
+                        for row, (start, end) in zip(json.loads(payload)["scenes"], upstream):
+                            self.assertEqual(row["start_time"], start.get_timecode())
+                            self.assertEqual(row["end_time"], end.get_timecode())
+                        thumbs = list((Path(tmpdir) / f"{backend}-{representative}").glob("*.jpg"))
+                        self.assertEqual(len(thumbs), count)
+
     def test_new_settings_preserve_existing_workflow_inputs_and_outputs(self):
         widget_names = [
             "method", "threshold", "min_scene_len_sec", "min_scene_len_frames",

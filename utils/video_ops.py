@@ -150,7 +150,9 @@ class TensorVideoStream(VideoStream):
         self._eof = False
 
     def seek(self, target: Any) -> None:
-        frame = self.frame_index_at(FrameTimecode(target, self._frame_rate))
+        frame = target if isinstance(target, int) else self.frame_index_at(
+            FrameTimecode(target, self._frame_rate)
+        )
         if frame < 0:
             raise ValueError("target must be greater than or equal to 0")
         self._next_frame = min(frame, len(self._frames))
@@ -257,9 +259,10 @@ def pick_frame_index(row: Dict[str, Any], representative: str) -> int:
 def pick_frame_timecode(
     scene: Tuple[FrameTimecode, FrameTimecode], representative: str
 ) -> FrameTimecode:
+    """Return a selection target; the end target is an exclusive scene boundary."""
     start, end = scene
     if representative == "end":
-        return max(start, end - 1)
+        return end
     if representative == "middle":
         return start + (end - start).seconds / 2.0
     return start
@@ -359,7 +362,7 @@ def detect_scenes_from_video(
         )
         scene_list = manager.get_scene_list(start_in_scene=True)
         # Fade-to-white detection can emit an initial cut at frame zero.
-        scene_list = [(start, end) for start, end in scene_list if end.frame_num > start.frame_num]
+        scene_list = [(start, end) for start, end in scene_list if end > start]
     finally:
         # Ensure file-backed streams are released even if detection raises.
         release = getattr(video, "release", None)
@@ -385,19 +388,44 @@ def video_source_path(source: Any):
         yield path
 
 
-def read_video_frames(
+def read_scene_frames(
     video_path: str,
-    timecodes: List[FrameTimecode],
+    scene_list: List[Tuple[FrameTimecode, FrameTimecode]],
+    representative: str = "start",
     backend: str = "opencv",
-) -> List[np.ndarray | None]:
-    if not timecodes:
+) -> List[Tuple[FrameTimecode, np.ndarray]]:
+    """Select images within upstream scene bounds using decoded presentation times.
+
+    A nominal frame period is not the previous frame's PTS on VFR sources. Read
+    forward through the public VideoStream API instead of seeking between PTS.
+    Only the selected frames and one current candidate are retained in memory.
+    """
+    if not scene_list:
         return []
 
     video = open_video(video_path, backend=backend)
-    frames: List[np.ndarray | None] = []
-    for timecode in timecodes:
-        # Keep PTS-backed timecodes intact; VFR frame numbers are only approximations.
-        video.seek(timecode)
+    frames = []
+    try:
         frame = video.read()
-        frames.append(frame if isinstance(frame, np.ndarray) else None)
+        for scene in scene_list:
+            start, end = scene
+            target = pick_frame_timecode(scene, representative)
+            candidate = None
+            while isinstance(frame, np.ndarray):
+                position = video.position
+                if position >= end:
+                    break
+                if position >= start:
+                    candidate = (position, frame)
+                    if representative == "start" or (
+                        representative == "middle" and position >= target
+                    ):
+                        break
+                frame = video.read()
+            if candidate is None:
+                raise ValueError(f"No representative frame decoded inside scene {start} - {end}.")
+            frames.append(candidate)
+    finally:
+        # VideoStream has no public close(); drop it before temporary source cleanup.
+        del video
     return frames
