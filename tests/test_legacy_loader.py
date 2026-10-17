@@ -1,4 +1,5 @@
 import importlib
+import builtins
 import json
 import sys
 import tempfile
@@ -6,7 +7,7 @@ import types
 import unittest
 from fractions import Fraction
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import torch
 from scenedetect import FrameTimecode, SceneManager, open_video
@@ -126,6 +127,98 @@ class LegacyLoaderTests(unittest.TestCase):
         self.assertEqual(stream.duration, times[-1] + 1)
         stream.reset()
         self.assertEqual(stream.position.frame_num, 0)
+        for target, expected in ((2, 2), (times[2], 2), (0.1, 1)):
+            with self.subTest(target=target):
+                stream.seek(target)
+                self.assertEqual(stream.frame_number, expected)
+                stream.read()
+                self.assertIs(stream.position, times[expected])
+        with self.assertRaises(ValueError):
+            stream.seek(-1)
+
+    def test_missing_audio_dependencies_do_not_break_video_or_upstream_fallback(self):
+        original_import = builtins.__import__
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "audio.mp4"
+            write_timing_video(path, audio=True)
+            for missing in ("av", "comfy_extras.nodes_audio"):
+                def import_without_audio(name, *args, **kwargs):
+                    if name == missing:
+                        raise ImportError(f"Missing {missing}")
+                    return original_import(name, *args, **kwargs)
+
+                for backend in ("opencv", "pyav"):
+                    with self.subTest(missing=missing, backend=backend):
+                        with (
+                            patch.dict(AVAILABLE_BACKENDS, {"opencv": AVAILABLE_BACKENDS["opencv"]}, clear=True),
+                            patch("builtins.__import__", side_effect=import_without_audio),
+                            self.assertLogs(level="WARNING") as logs,
+                        ):
+                            images, count, audio, info = self.load(path, backend=backend)
+                        self.assertEqual(count, 60)
+                        self.assertEqual(len(images), len(info["scenedetect_timecodes"]))
+                        self.assertIsNone(audio)
+                        self.assertIn("audio", " ".join(logs.output).lower())
+
+    def test_loader_does_not_concatenate_float32_frame_batches(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "memory.mp4"
+            write_timing_video(path)
+            with patch.object(loader_node.torch, "cat", side_effect=AssertionError("Duplicate float32 batch")):
+                images, count, _, _ = self.load(path, load_audio=False)
+            self.assertEqual(images.shape, (60, 64, 64, 3))
+            self.assertEqual(count, 60)
+            self.assertEqual(images.dtype, torch.float32)
+            self.assertLess(images[0].mean().item(), 0.02)
+            self.assertGreater(images[-1].mean().item(), 0.98)
+
+    def test_source_estimates_are_not_replaced_with_decoded_counts(self):
+        images = torch.zeros((2, 8, 8, 3))
+        images[0, :, :, 0] = 1.0
+        stream = ops.TensorVideoStream(images, 30.0)
+        # The source estimate and the number actually decoded have different contracts.
+        duration = FrameTimecode(1234, 30.0)
+        with (
+            patch.object(loader_node, "open_video", return_value=stream),
+            patch.object(type(stream), "duration", new_callable=PropertyMock, return_value=duration),
+        ):
+            loaded, count, _, info = self.load(Path("estimate.mp4"), load_audio=False)
+        self.assertEqual(count, 2)
+        self.assertEqual(info["loaded_frame_count"], 2)
+        self.assertEqual(info["source_frame_count"], 1234)
+        self.assertEqual(info["source_duration"], duration.seconds)
+        torch.testing.assert_close(loaded, images)
+
+    def test_loader_stops_decoding_on_comfyui_cancellation(self):
+        stream = ops.TensorVideoStream(torch.zeros((60, 8, 8, 3)), 30.0)
+        with (
+            patch.object(loader_node, "open_video", return_value=stream),
+            patch.object(
+                loader_node.model_management, "throw_exception_if_processing_interrupted",
+                side_effect=[None, None, RuntimeError("cancelled")],
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cancelled"):
+                self.load(Path("cancel.mp4"), load_audio=False)
+        self.assertEqual(stream.frame_number, 2)
+
+    def test_short_vfr_scenes_keep_legacy_representatives_and_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "short-vfr.mp4"
+            write_timing_video(path, vfr=True, short_scenes=True)
+            for backend in ("opencv", "pyav"):
+                images, _, _, info = self.load(path, backend=backend, load_audio=False)
+                for representative in ("start", "middle", "end"):
+                    with self.subTest(backend=backend, representative=representative):
+                        reps, payload, count = legacy_node.PySceneDetectToImages().run(
+                            images, info, "content", 10.0, 0.0, 1, True,
+                            representative=representative,
+                        )
+                        self.assertEqual(count, 6)
+                        self.assertEqual(len(reps), count)
+                        self.assertEqual(len(json.loads(payload)["scenes"]), count)
+                        for image, expected in zip(reps, (0, 255, 128, 30, 200, 70)):
+                            self.assertAlmostEqual(image.mean().item() * 255, expected, delta=3)
 
     def test_audio_and_silent_video(self):
         with tempfile.TemporaryDirectory() as tmpdir:

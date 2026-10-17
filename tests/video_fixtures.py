@@ -3,7 +3,7 @@ from fractions import Fraction
 import numpy as np
 
 
-def write_timing_video(path, *, vfr=False, audio=False):
+def write_timing_video(path, *, vfr=False, audio=False, short_scenes=False):
     import av
 
     with av.open(str(path), "w") as container:
@@ -14,9 +14,12 @@ def write_timing_video(path, *, vfr=False, audio=False):
         if audio:
             audio_stream = container.add_stream("aac", rate=48000)
             audio_stream.layout = "stereo"
-        for index in range(60):
+        values = [0] * 30 + [255] * 30
+        if short_scenes:
+            values += [128] * 2 + [30] + [200] * 20 + [70]
+        for index, value in enumerate(values):
             frame = av.VideoFrame.from_ndarray(
-                np.full((64, 64, 3), 0 if index < 30 else 255, dtype=np.uint8),
+                np.full((64, 64, 3), value, dtype=np.uint8),
                 format="rgb24",
             )
             frame.time_base = Fraction(1, 300)

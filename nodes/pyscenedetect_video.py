@@ -8,8 +8,7 @@ from ..utils.video_ops import (
     DetectorSettings,
     detect_scenes,
     frame_to_tensor_bhwc,
-    pick_frame_timecode,
-    read_video_frames,
+    read_scene_frames,
     resize_keep_ar,
     timecodes_to_dict,
     video_source_path,
@@ -138,10 +137,7 @@ class PySceneDetectVideo:
                 scene_list = scene_list[:limit_scenes]
 
             rows = timecodes_to_dict(scene_list, fps)
-            frame_timecodes = [
-                pick_frame_timecode(scene, representative) for scene in scene_list
-            ]
-            frames = read_video_frames(video_path, frame_timecodes, backend=backend)
+            frames = read_scene_frames(video_path, scene_list, representative, backend=backend)
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
@@ -150,10 +146,7 @@ class PySceneDetectVideo:
             thumbnail_dir = _resolve_thumbnail_path(output_root, thumbnail_subdir)
             os.makedirs(thumbnail_dir, exist_ok=True)
 
-        for row, timecode, frame in zip(rows, frame_timecodes, frames):
-            if frame is None:
-                continue
-
+        for row, (timecode, frame) in zip(rows, frames):
             h, w = frame.shape[:2]
             new_width, new_height = resize_keep_ar(w, h, max_width, max_height)
             if (new_width, new_height) != (w, h):
