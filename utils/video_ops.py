@@ -222,6 +222,17 @@ def pick_frame_index(row: Dict[str, Any], representative: str) -> int:
     return s
 
 
+def pick_frame_timecode(
+    scene: Tuple[FrameTimecode, FrameTimecode], representative: str
+) -> FrameTimecode:
+    start, end = scene
+    if representative == "end":
+        return max(start, end - 1)
+    if representative == "middle":
+        return start + (end - start).seconds / 2.0
+    return start
+
+
 def resize_keep_ar(w: int, h: int, max_w: int, max_h: int) -> Tuple[int, int]:
     if max_w <= 0 and max_h <= 0:
         return w, h
@@ -257,8 +268,9 @@ def detect_scenes(
     hist_threshold: float = 0.05,
     downscale: int = 0,
     settings: DetectorSettings | None = None,
+    backend: str = "opencv",
 ):
-    video = open_video(video_path)
+    video = open_video(video_path, backend=backend)
     if start_time > 0:
         video.seek(start_time)
     return detect_scenes_from_video(
@@ -341,18 +353,19 @@ def video_source_path(source: Any):
         yield path
 
 
-def read_video_frames(video_path: str, frame_indices: List[int]) -> Dict[int, np.ndarray]:
-    capture = cv2.VideoCapture(video_path)
-    if not capture.isOpened():
-        raise RuntimeError(f"Failed to open video: {video_path}")
+def read_video_frames(
+    video_path: str,
+    timecodes: List[FrameTimecode],
+    backend: str = "opencv",
+) -> List[np.ndarray | None]:
+    if not timecodes:
+        return []
 
-    frames: Dict[int, np.ndarray] = {}
-    try:
-        for index in sorted(set(frame_indices)):
-            capture.set(cv2.CAP_PROP_POS_FRAMES, index)
-            ok, frame = capture.read()
-            if ok:
-                frames[index] = frame
-    finally:
-        capture.release()
+    video = open_video(video_path, backend=backend)
+    frames: List[np.ndarray | None] = []
+    for timecode in timecodes:
+        # Keep PTS-backed timecodes intact; VFR frame numbers are only approximations.
+        video.seek(timecode)
+        frame = video.read()
+        frames.append(frame if isinstance(frame, np.ndarray) else None)
     return frames

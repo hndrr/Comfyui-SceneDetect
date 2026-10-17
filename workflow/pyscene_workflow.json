@@ -177,7 +177,8 @@
         0,
         0.0,
         false,
-        "floor"
+        "floor",
+        "opencv"
       ]
     }
   ],
