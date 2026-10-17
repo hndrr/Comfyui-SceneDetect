@@ -8,7 +8,7 @@ from ..utils.video_ops import (
     DetectorSettings,
     detect_scenes,
     frame_to_tensor_bhwc,
-    pick_frame_index,
+    pick_frame_timecode,
     read_video_frames,
     resize_keep_ar,
     timecodes_to_dict,
@@ -75,6 +75,7 @@ class PySceneDetectVideo:
                      "tooltip": "Detection only: 0 = automatic, 1 = full resolution, 2 = half width/height. Representative images keep their original resolution."},
                 ),
                 **detector_input_types(),
+                "backend": (["opencv", "pyav"], {"default": "opencv"}),
             },
         }
 
@@ -101,6 +102,7 @@ class PySceneDetectVideo:
         hist_threshold: float = 0.05,
         downscale: int = 0,
         detector_settings: str = "default",
+        backend: str = "opencv",
         **detector_options,
     ):
         fps = float(video.get_frame_rate())
@@ -127,16 +129,19 @@ class PySceneDetectVideo:
                 hist_threshold=hist_threshold,
                 downscale=downscale,
                 settings=settings,
+                backend=backend,
             )
             if fps_detected > 0:
                 fps = fps_detected
 
-            rows = timecodes_to_dict(scene_list, fps)
             if limit_scenes and limit_scenes > 0:
-                rows = rows[:limit_scenes]
+                scene_list = scene_list[:limit_scenes]
 
-            frame_indices = [pick_frame_index(row, representative) for row in rows]
-            frames = read_video_frames(video_path, frame_indices)
+            rows = timecodes_to_dict(scene_list, fps)
+            frame_timecodes = [
+                pick_frame_timecode(scene, representative) for scene in scene_list
+            ]
+            frames = read_video_frames(video_path, frame_timecodes, backend=backend)
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
@@ -145,8 +150,7 @@ class PySceneDetectVideo:
             thumbnail_dir = _resolve_thumbnail_path(output_root, thumbnail_subdir)
             os.makedirs(thumbnail_dir, exist_ok=True)
 
-        for row, frame_index in zip(rows, frame_indices):
-            frame = frames.get(frame_index)
+        for row, timecode, frame in zip(rows, frame_timecodes, frames):
             if frame is None:
                 continue
 
@@ -162,7 +166,7 @@ class PySceneDetectVideo:
             image_tensors.append(frame_to_tensor_bhwc(frame))
 
             if write_thumbs:
-                out_name = f"scene_{row['index']:03d}_f{frame_index}.jpg"
+                out_name = f"scene_{row['index']:03d}_f{timecode.frame_num}.jpg"
                 out_path = _resolve_thumbnail_path(
                     output_root, os.path.join(thumbnail_subdir, out_name)
                 )
@@ -204,6 +208,7 @@ class PySceneDetectVideo:
                 "hist_threshold": hist_threshold,
                 "downscale": downscale,
                 "detector_settings": detector_settings,
+                "backend": backend,
                 "scenes": rows,
             },
             ensure_ascii=False,

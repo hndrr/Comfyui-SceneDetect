@@ -8,6 +8,10 @@ import cv2
 import numpy as np
 import torch
 from scenedetect import FrameTimecode
+from scenedetect.backends import AVAILABLE_BACKENDS
+from scenedetect.common import Timecode
+
+from video_fixtures import write_timing_video
 
 from utils.video_ops import (
     DetectorSettings,
@@ -15,12 +19,82 @@ from utils.video_ops import (
     choose_detector,
     detect_scenes,
     detect_scenes_from_video,
+    pick_frame_timecode,
     read_video_frames,
     timecodes_to_dict,
 )
 
 
 class VideoOpsTests(unittest.TestCase):
+    def test_representative_timecodes_preserve_pts(self):
+        start = FrameTimecode(Timecode(1001, Fraction(1, 1000)), 30.0)
+        end = FrameTimecode(Timecode(2003, Fraction(1, 1000)), 30.0)
+
+        self.assertIs(pick_frame_timecode((start, end), "start"), start)
+        middle = pick_frame_timecode((start, end), "middle")
+        self.assertAlmostEqual(middle.seconds, 1.502, places=3)
+        self.assertEqual(middle.time_base, Fraction(1, 1000))
+        self.assertEqual(pick_frame_timecode((start, end), "end"), end - 1)
+
+    def test_frame_reads_keep_timecodes_and_missing_frames_in_order(self):
+        timecodes = [
+            FrameTimecode(Timecode(1000, Fraction(1, 1000)), 30.0),
+            FrameTimecode(Timecode(1001, Fraction(1, 1000)), 30.0),
+            FrameTimecode(Timecode(1002, Fraction(1, 1000)), 30.0),
+        ]
+        self.assertEqual(len({timecode.frame_num for timecode in timecodes}), 1)
+        first = np.zeros((8, 8, 3), dtype=np.uint8)
+        last = np.full((8, 8, 3), 255, dtype=np.uint8)
+        video = Mock()
+        video.read.side_effect = [first, False, last]
+        with patch("utils.video_ops.open_video", return_value=video) as open_stream:
+            frames = read_video_frames("vfr.mp4", timecodes, backend="pyav")
+
+        open_stream.assert_called_once_with("vfr.mp4", backend="pyav")
+        self.assertEqual(video.seek.call_count, len(timecodes))
+        for call, timecode in zip(video.seek.call_args_list, timecodes):
+            self.assertIs(call.args[0], timecode)
+        self.assertIs(frames[0], first)
+        self.assertIsNone(frames[1])
+        self.assertIs(frames[2], last)
+
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_vfr_representatives_use_scene_times_with_both_backends(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "vfr.mp4"
+            write_timing_video(path, vfr=True)
+            for backend in ("opencv", "pyav"):
+                with self.subTest(backend=backend):
+                    scenes, _ = detect_scenes(
+                        str(path), "content", 10.0, 0.0, 1, True,
+                        backend=backend,
+                    )
+                    self.assertEqual(len(scenes), 2)
+                    self.assertAlmostEqual(scenes[1][0].seconds, 3.0)
+                    timecodes = [pick_frame_timecode(scene, "middle") for scene in scenes]
+                    frames = read_video_frames(str(path), timecodes, backend=backend)
+                    self.assertLess(frames[0].mean(), 5)
+                    self.assertGreater(frames[1].mean(), 250)
+
+    def test_backend_fallback_is_left_to_pyscenedetect(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "fallback.avi")
+            writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (32, 32))
+            self.assertTrue(writer.isOpened())
+            try:
+                for _ in range(20):
+                    writer.write(np.full((32, 32, 3), 128, dtype=np.uint8))
+            finally:
+                writer.release()
+
+            with patch.dict(AVAILABLE_BACKENDS, {"opencv": AVAILABLE_BACKENDS["opencv"]}, clear=True):
+                scenes, fps = detect_scenes(path, "content", 10.0, 0.0, 1, True, backend="pyav")
+                frames = read_video_frames(path, [scenes[0][0]], backend="pyav")
+
+        self.assertEqual([(start.frame_num, end.frame_num) for start, end in scenes], [(0, 20)])
+        self.assertAlmostEqual(fps, 10.0)
+        self.assertAlmostEqual(frames[0].mean(), 128, delta=1)
+
     def test_custom_kernel_sizes_match_documented_automatic_range(self):
         for method in ("content", "adaptive"):
             for size, expected in ((0, None), (1, None), (2, None), (3, 3), (4, 5), (5, 5)):
@@ -177,7 +251,7 @@ class VideoOpsTests(unittest.TestCase):
                 min_scene_len_frames=1,
                 luma_only=False,
             )
-            selected_frames = read_video_frames(str(video_path), [0, 20])
+            selected_frames = read_video_frames(str(video_path), [start for start, _ in scenes])
 
         self.assertAlmostEqual(fps, 10.0)
         self.assertEqual(
@@ -185,7 +259,7 @@ class VideoOpsTests(unittest.TestCase):
             [(0, 20), (20, 40)],
         )
         np.testing.assert_array_equal(selected_frames[0][0, 0], [0, 0, 0])
-        np.testing.assert_array_equal(selected_frames[20][0, 0], [255, 255, 255])
+        np.testing.assert_array_equal(selected_frames[1][0, 0], [255, 255, 255])
 
     def test_detect_scenes_finds_hard_cut_in_tensor_stream(self):
         frames = torch.cat(

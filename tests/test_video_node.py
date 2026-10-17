@@ -5,10 +5,15 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 import torch
+from scenedetect import ContentDetector, detect
+from scenedetect.backends import AVAILABLE_BACKENDS
+
+from video_fixtures import write_timing_video
 
 try:
     from comfy_api.latest import InputImpl
@@ -41,6 +46,86 @@ legacy_node = (
 
 @unittest.skipIf(InputImpl is None, "ComfyUI's comfy_api is not available")
 class VideoNodeTests(unittest.TestCase):
+    def test_backend_is_appended_and_example_keeps_existing_widget_values(self):
+        inputs = video_node.PySceneDetectVideo.INPUT_TYPES()
+        self.assertEqual(list(inputs["optional"])[-1], "backend")
+        self.assertEqual(inputs["optional"]["backend"], (["opencv", "pyav"], {"default": "opencv"}))
+        self.assertNotIn("backend", legacy_node.PySceneDetectToImages.INPUT_TYPES()["optional"])
+
+        workflow_path = Path(__file__).resolve().parents[1] / "workflow" / "pyscene_workflow.json"
+        workflow = json.loads(workflow_path.read_text())
+        node = next(node for node in workflow["nodes"] if node["type"] == "PySceneDetectVideo")
+        widget_names = list(inputs["required"])[1:] + list(inputs["optional"])
+        legacy_inputs = legacy_node.PySceneDetectToImages.INPUT_TYPES()
+        legacy_widget_names = [
+            name for group in ("required", "optional") for name in legacy_inputs[group]
+            if name not in ("image", "video_info")
+        ]
+        self.assertEqual(widget_names[:-1], legacy_widget_names)
+        self.assertEqual(len(node["widgets_values"]), len(widget_names))
+        self.assertEqual(node["widgets_values"][-1], "opencv")
+        self.assertEqual(node["widgets_values"][:11], [
+            "content", 27, 0, 1, True, "start", 0, 0, 0, False, "",
+        ])
+
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_backends_keep_upstream_vfr_metadata_and_correct_middle_images(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "vfr.mp4"
+            write_timing_video(path, vfr=True)
+            for backend in ("opencv", "pyav"):
+                with self.subTest(backend=backend):
+                    upstream = detect(
+                        str(path), ContentDetector(threshold=10.0, min_scene_len=1, luma_only=True),
+                        start_in_scene=True, backend=backend,
+                    )
+                    images, scenes_json, count = video_node.PySceneDetectVideo().run(
+                        InputImpl.VideoFromFile(str(path)), "content", 10.0, 0.0, 1, True,
+                        representative="middle", backend=backend,
+                    )
+                    metadata = json.loads(scenes_json)
+                    self.assertEqual(metadata["backend"], backend)
+                    self.assertEqual(count, 2)
+                    self.assertEqual(images.shape, (2, 64, 64, 3))
+                    self.assertLess(images[0].mean().item(), 0.02)
+                    self.assertGreater(images[1].mean().item(), 0.98)
+                    for row, (start, end) in zip(metadata["scenes"], upstream):
+                        self.assertEqual(row["start_frame"], start.frame_num)
+                        self.assertEqual(row["end_frame"], end.frame_num)
+                        self.assertEqual(row["start_time"], start.get_timecode())
+                        self.assertEqual(row["end_time"], end.get_timecode())
+                        self.assertEqual(row["duration_sec"], end.seconds - start.seconds)
+
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_backends_support_representatives_trim_limits_resize_and_thumbnails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "cfr.mp4"
+            write_timing_video(path)
+            for backend in ("opencv", "pyav"):
+                for representative in ("start", "middle", "end"):
+                    with self.subTest(backend=backend, representative=representative):
+                        images, _, count = video_node.PySceneDetectVideo().run(
+                            InputImpl.VideoFromFile(str(path), start_time=0.5, duration=1.0),
+                            "content", 10.0, 0.0, 1, True,
+                            representative=representative, backend=backend,
+                        )
+                        self.assertEqual(count, 2)
+                        self.assertEqual(images.shape, (2, 64, 64, 3))
+                        self.assertLess(images[0].mean().item(), 0.02)
+                        self.assertGreater(images[1].mean().item(), 0.98)
+
+                with patch.object(video_node.folder_paths, "get_output_directory", return_value=tmpdir):
+                    images, metadata, count = video_node.PySceneDetectVideo().run(
+                        InputImpl.VideoFromFile(str(path)), "content", 10.0, 0.0, 1, True,
+                        backend=backend, limit_scenes=1, max_width=32,
+                        write_thumbs=True, thumbs_dir=backend,
+                    )
+                self.assertEqual(count, 1)
+                self.assertEqual(images.shape, (1, 32, 32, 3))
+                self.assertEqual(len(json.loads(metadata)["scenes"]), 1)
+                thumbnail = cv2.imread(str(Path(tmpdir) / backend / "scene_001_f0.jpg"))
+                self.assertEqual(thumbnail.shape, (32, 32, 3))
+
     def test_new_settings_preserve_existing_workflow_inputs_and_outputs(self):
         widget_names = [
             "method", "threshold", "min_scene_len_sec", "min_scene_len_frames",

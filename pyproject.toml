@@ -23,7 +23,7 @@ requires-python = ">=3.10"
 
 # The Registry node id is "scenedetect", so use the official headless
 # distribution name to avoid declaring this project as its own dependency.
-dependencies = ["scenedetect-headless>=0.7.1,<0.8", "opencv-python-headless>=4.9", "numpy"]
+dependencies = ["scenedetect-headless>=0.7.2,<0.8", "opencv-python-headless>=4.9", "numpy"]
 
 [project.urls]
 Repository = "https://github.com/hndrr/Comfyui-SceneDetect"
