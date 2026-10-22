@@ -58,6 +58,7 @@ Installing from ComfyUI Manager also installs the Python dependencies listed bel
 
 - Node: `PySceneDetect: Video → Scenes` (recommended, built-in `VIDEO` input)
 - Legacy node: `PySceneDetect: Scenes → Images (Legacy VHS)`
+- Preview node: `PySceneDetect: Preview Videos`
 - Category: `Video/PySceneDetect`
 
 Once installed, the node can be searched and placed directly inside ComfyUI.
@@ -202,6 +203,7 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 The samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
 - Recommended: `workflow/pyscene_workflow.json`
+- Scene clips, local text outputs, and clip player: `workflow/pyscene_workflow_scene_outputs.json`
 - VHS images through native VIDEO (new workflows): `workflow/pyscene_workflow_vhs_video.json`
 - Existing Legacy VHS workflows: `workflow/pyscene_workflow_legacy_vhs.json`
 

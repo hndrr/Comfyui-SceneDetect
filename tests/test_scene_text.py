@@ -29,6 +29,10 @@ class SceneTextTests(unittest.TestCase):
         self.assertEqual(format_scenes_for_llm([]), ("# Scenes (0)", []))
         rows = timecodes_to_dict([(FrameTimecode(0, 10.0), FrameTimecode(20, 10.0))], 10.0)
         self.assertEqual(format_scenes_for_llm(rows, "Unclosed {index")[1], ["Unclosed {index"])
+        for template in ("Unknown {missing.key}", "Bad index {index[0]}", "Unknown {missing[key]}"):
+            with self.subTest(template=template):
+                self.assertEqual(format_scenes_for_llm(rows, template)[1], [template])
+
 
     @unittest.skipIf(InputImpl is None, "ComfyUI's comfy_api is not available")
     def test_both_nodes_emit_one_prompt_per_limited_scene(self):
@@ -53,14 +57,16 @@ class SceneTextTests(unittest.TestCase):
                         min_scene_len_frames=1, luma_only=False, limit_scenes=1,
                         prompt_template="Scene {index}/{scene_count}: {duration_frames} frames",
                     )
-                    images, scenes_json, count, text, prompts = result
+                    images, scenes_json, count = result[:3]
+                    text, prompts = result[-2:]
                     self.assertEqual(images.shape, (1, 32, 32, 3))
                     self.assertEqual(count, 1)
                     self.assertEqual(len(json.loads(scenes_json)["scenes"]), count)
                     self.assertEqual(text.splitlines()[0], "# Scenes (1)")
                     self.assertEqual(prompts, ["Scene 1/1: 20 frames"])
-                    self.assertEqual(cls.RETURN_NAMES[3:], ("all_scenes_text", "per_scene_prompt_list"))
-                    self.assertEqual(cls.OUTPUT_IS_LIST, (False, False, False, False, True))
+                    self.assertEqual(cls.RETURN_NAMES[-2:], ("all_scenes_text", "per_scene_prompt_list"))
+                    self.assertEqual(cls.OUTPUT_IS_LIST[:3], (False, False, False))
+                    self.assertEqual(cls.OUTPUT_IS_LIST[-2:], (False, True))
                     self.assertEqual(list(cls.INPUT_TYPES()["optional"])[-1], "prompt_template")
 
 

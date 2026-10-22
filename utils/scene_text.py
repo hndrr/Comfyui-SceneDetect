@@ -33,7 +33,7 @@ def format_scenes_for_llm(
         }
         try:
             prompts.append(prompt_template.format_map(_TemplateMap(values)))
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, KeyError, AttributeError, TypeError):
             prompts.append(prompt_template)
         lines.append(
             f"{row['index']}. {row['start_time']} – {row['end_time']} | "

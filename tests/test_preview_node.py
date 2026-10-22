@@ -78,6 +78,15 @@ class PreviewNodeTests(unittest.TestCase):
             self.assertEqual(cls.INPUT_TYPES()["required"]["video"][0], "VIDEO")
             self.assertEqual(cls().preview([]), {"ui": {"scene_previews": []}})
 
+    def test_raw_path_is_rejected_as_a_video_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "not-a-video.txt"
+            source.write_text("private file")
+            preview_node = _load_preview_node(tmpdir, tmpdir)
+            with self.assertRaisesRegex(ValueError, "VIDEO input"):
+                preview_node.PySceneDetectPreviewVideos().preview(str(source))
+            self.assertFalse((Path(tmpdir) / "scenedetect_preview").exists())
+
     def test_temp_path_is_returned_without_copying_or_writing_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_root = Path(tmpdir) / "output"
