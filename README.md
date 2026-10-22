@@ -192,7 +192,7 @@ Existing workflows containing `PySceneDetectToImages` continue to load as the Le
 
 The recommended node receives a lazy `VIDEO` object from ComfyUI's built-in loader. PySceneDetect reads the original compressed file directly, and only the selected representative frames are returned as an `IMAGE` batch. It does not create a full float32 frame batch.
 
-Representative extraction makes a second sequential decoding pass through PySceneDetect. It selects actual decoded PTS within each scene's start-inclusive/end-exclusive bounds, including one-frame and VFR scenes; it does not change upstream scene boundaries.
+Representative extraction seeks one second before the first selected scene, then decodes sequentially through PySceneDetect. If seeking fails or lands past the scene start, it restarts from the beginning to preserve frame selection. It selects actual decoded PTS within each scene's start-inclusive/end-exclusive bounds, including one-frame and VFR scenes; it does not change upstream scene boundaries.
 
 The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDetect processes that batch one frame at a time without creating full RGB/BGR copies. For new workflows, use the built-in `Load Video` path to avoid the VHS batch allocation entirely.
 

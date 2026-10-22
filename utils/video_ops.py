@@ -16,7 +16,7 @@ from scenedetect.detectors import (
     HashDetector,
     HistogramDetector,
 )
-from scenedetect.video_stream import VideoStream
+from scenedetect.video_stream import SeekError, VideoStream
 
 
 @dataclass(frozen=True)
@@ -363,8 +363,9 @@ def read_scene_frames(
     """Select images within upstream scene bounds using decoded presentation times.
 
     A nominal frame period is not the previous frame's PTS on VFR sources. Read
-    forward through the public VideoStream API instead of seeking between PTS.
-    Only the selected frames and one current candidate are retained in memory.
+    forward through the public VideoStream API after seeking before the first
+    scene. If the seek overshoots or fails, restart sequential decoding. Only
+    selected frames and one current candidate are retained in memory.
     """
     if not scene_list:
         return []
@@ -372,7 +373,18 @@ def read_scene_frames(
     video = open_video(video_path, backend=backend)
     frames = []
     try:
-        frame = video.read()
+        first_start = scene_list[0][0]
+        if video.is_seekable and first_start.seconds > 1.0:
+            try:
+                video.seek(first_start.seconds - 1.0)
+                frame = video.read()
+            except SeekError:
+                frame = False
+            if not isinstance(frame, np.ndarray) or video.position > first_start:
+                video.reset()
+                frame = video.read()
+        else:
+            frame = video.read()
         for scene in scene_list:
             start, end = scene
             target = pick_frame_timecode(scene, representative)
