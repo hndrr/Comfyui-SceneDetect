@@ -168,46 +168,150 @@ test("a one-frame clip can reveal even when no further frame callback arrives", 
 });
 
 
-test("execution start clears all clips; cached execution restores current results", async () => {
+function graphWith(nodes = []) {
+    const graph = { getNodeById(id) { return nodes.find(node => String(node.id) === String(id)); } };
+    for (const node of nodes) node.graph = graph;
+    return graph;
+}
+
+async function scopeHarness() {
     let extension;
-    const listeners = new Map();
-    const nodes = [];
-    const preview = loadPreview({
-        app: { registerExtension(value) { extension = value; }, graph: {
-            findNodesByType(type) { assert.equal(type, "PySceneDetectPreviewVideos"); return nodes; },
-        } },
-        api: { apiURL: path => path, addEventListener(name, callback) { listeners.set(name, callback); } },
-        document: { createElement: tag => new Element(tag) },
-    });
+    let queueHandler = async () => ({prompt_id: "accepted"});
+    const app = {registerExtension(value) {extension = value;}};
+    const listeners = new Set();
+    const api = {
+        apiURL: path => path,
+        queuePrompt(...args) { return queueHandler.apply(this, args); },
+        addEventListener(name, listener) { assert.equal(name, "executed"); listeners.add(listener); },
+        removeEventListener(name, listener) { assert.equal(name, "executed"); listeners.delete(listener); },
+        emitExecuted(detail) { for (const listener of listeners) listener({detail}); },
+        listenerCount() { return listeners.size; },
+    };
+    const preview = loadPreview({app, api, document: {createElement: tag => new Element(tag)}});
     class PreviewNode {
-        constructor() { this.size = [320, 320]; this.widgets = []; }
+        constructor(id) { this.id = id; this.type = "PySceneDetectPreviewVideos"; this.size = [320, 320]; this.widgets = []; }
         addDOMWidget() { return {}; }
         computeSize() { return this.size; }
         setSize(size) { this.size = size; }
     }
-    await extension.beforeRegisterNodeDef(PreviewNode, { name: "PySceneDetectPreviewVideos" });
+    await extension.beforeRegisterNodeDef(PreviewNode, {name: "PySceneDetectPreviewVideos"});
     extension.setup();
-    const node = new PreviewNode(); nodes.push(node); node.onNodeCreated();
-    assert.match(node._psdVideoPreviewContainer.children[0].textContent, /No videos/);
     preview.waitForStartFrame = () => Promise.resolve();
     preview.waitForPresentedFrame = () => Promise.resolve();
-    node.onExecuted({ scene_previews: [{filename: "current.mp4"}] });
+    return {app, api, preview, makeNode(id) {
+        const node = new PreviewNode(id); node.onNodeCreated(); return node;
+    }, setQueueHandler(handler) {queueHandler = handler;}};
+}
+
+async function display(node, filename = "current.mp4") {
+    node.onExecuted({scene_previews: [{filename}]});
     await new Promise(resolve => setImmediate(resolve));
-    const old = node._psdPreviewVideo;
-    assert.match(old.src, /current.mp4/);
+    return node._psdPreviewVideo;
+}
+
+const previewOutput = inputs => ({class_type: "PySceneDetectPreviewVideos", inputs: inputs || {}});
+
+test("an accepted run releases current/pending videos and cached results restore the preview", async () => {
+    const h = await scopeHarness(); const node = h.makeNode(28);
+    h.app.rootGraph = graphWith([node]);
+    const old = await display(node);
     const pending = new Element("video"); pending.src = "pending.mp4";
     node._psdPreviewStage.appendChild(pending);
-    listeners.get("execution_start")();
+    await h.api.queuePrompt(0, {output: {28: previewOutput()}});
     assert.equal(old.src, undefined);
     assert.equal(pending.src, undefined);
     assert.equal(node._psdVideoPreviewContainer.querySelectorAll("video").length, 0);
-    assert.equal(node._psdPreviewEntries.length, 0);
     assert.match(node._psdVideoPreviewContainer.children[0].textContent, /No videos/);
-    // ComfyUI emits onExecuted for cached outputs after execution_start, too.
-    node.onExecuted({ scene_previews: [{filename: "current.mp4"}] });
-    await new Promise(resolve => setImmediate(resolve));
-    assert.match(node._psdPreviewVideo.src, /current.mp4/);
-    const restored = node._psdPreviewVideo;
+    const restored = await display(node);
+    assert.match(restored.src, /current.mp4/);
     node.onRemoved();
     assert.equal(restored.src, undefined);
+});
+
+test("partial execution resolves nested IDs without clearing a sibling preview with the same leaf ID", async () => {
+    const h = await scopeHarness(); const selected = h.makeNode(28); const unrelated = h.makeNode(28);
+    const left = {id: 10, subgraph: graphWith([{id: 20, subgraph: graphWith([selected])}])};
+    const right = {id: 11, subgraph: graphWith([{id: 20, subgraph: graphWith([unrelated])}])};
+    h.app.rootGraph = graphWith([left, right]); h.app.graph = left.subgraph;
+    const oldSelected = await display(selected, "selected.mp4");
+    const oldUnrelated = await display(unrelated, "unrelated.mp4");
+    const output = {"10:20:28": previewOutput(), "11:20:28": previewOutput()};
+    await h.api.queuePrompt(0, {output}, {partialExecutionTargets: ["10:20:28"]});
+    assert.equal(oldSelected.src, undefined);
+    assert.equal(unrelated._psdPreviewVideo, oldUnrelated);
+    assert.match(oldUnrelated.src, /unrelated.mp4/);
+});
+
+test("running another output leaves both downstream previews outside its dependency closure", async () => {
+    const h = await scopeHarness(); const first = h.makeNode(28); const second = h.makeNode(29);
+    h.app.rootGraph = graphWith([first, second]);
+    const oldFirst = await display(first); const oldSecond = await display(second);
+    const output = {20: {class_type: "LoadVideo", inputs: {}},
+        27: {class_type: "PySceneDetectVideo", inputs: {video: ["20", 0]}},
+        28: previewOutput({videos: ["27", 3]}), 29: previewOutput({videos: ["20", 0]}),
+        30: {class_type: "SaveVideo", inputs: {video: ["27", 3]}}};
+    await h.api.queuePrompt(0, {output}, {partialExecutionTargets: ["30"]});
+    assert.equal(first._psdPreviewVideo, oldFirst);
+    assert.equal(second._psdPreviewVideo, oldSecond);
+    assert.match(oldFirst.src, /current.mp4/);
+    assert.match(oldSecond.src, /current.mp4/);
+});
+
+test("a fast cached result is not erased when the queue response arrives later", async () => {
+    const h = await scopeHarness(); const node = h.makeNode(28);
+    h.app.rootGraph = graphWith([node]); await display(node, "old.mp4");
+    h.setQueueHandler(async () => {
+        await display(node, "cached-current.mp4");
+        h.api.emitExecuted({prompt_id: "fast", node: "28"});
+        return {prompt_id: "fast"};
+    });
+    await h.api.queuePrompt(0, {output: {28: previewOutput()}});
+    assert.match(node._psdPreviewVideo.src, /cached-current.mp4/);
+    assert.equal(h.api.listenerCount(), 0);
+});
+
+test("another queued job's result cannot suppress clearing the accepted run", async () => {
+    const h = await scopeHarness(); const node = h.makeNode(28);
+    h.app.rootGraph = graphWith([node]); await display(node, "old.mp4");
+    h.setQueueHandler(async () => {
+        await display(node, "previous-job.mp4");
+        h.api.emitExecuted({prompt_id: "previous-job", node: "28"});
+        return {prompt_id: "current-job"};
+    });
+    await h.api.queuePrompt(0, {output: {28: previewOutput()}});
+    assert.equal(node._psdPreviewVideo, null);
+    assert.equal(h.api.listenerCount(), 0);
+});
+
+test("queue rejection and invalid outputs retain their previous previews", async () => {
+    const h = await scopeHarness(); const node = h.makeNode(28);
+    h.app.rootGraph = graphWith([node]); const old = await display(node);
+    h.setQueueHandler(async () => {throw new Error("validation failed");});
+    await assert.rejects(h.api.queuePrompt(0, {output: {28: previewOutput()}}), /validation failed/);
+    assert.equal(node._psdPreviewVideo, old);
+    assert.equal(h.api.listenerCount(), 0);
+    h.setQueueHandler(async () => ({node_errors: {}}));
+    await h.api.queuePrompt(0, {output: {28: previewOutput()}});
+    assert.equal(node._psdPreviewVideo, old);
+    h.setQueueHandler(async () => ({prompt_id: "other-valid-output", node_errors: {20: {dependent_outputs: ["28"]}}}));
+    await h.api.queuePrompt(0, {output: {28: previewOutput()}});
+    assert.equal(node._psdPreviewVideo, old);
+    assert.match(old.src, /current.mp4/);
+});
+
+test("workflow switches cannot clear another workflow with reused node IDs; queue arguments and return are preserved", async () => {
+    const h = await scopeHarness(); const queued = h.makeNode(28); const other = h.makeNode(28);
+    const queuedGraph = graphWith([queued]); const otherGraph = graphWith([other]);
+    h.app.rootGraph = queuedGraph;
+    const oldQueued = await display(queued); const oldOther = await display(other);
+    const prompt = {output: {28: previewOutput()}}; const options = {partialExecutionTargets: ["28"], previewMethod: "none"};
+    const response = {prompt_id: "queued", node_errors: {}};
+    h.setQueueHandler(function(...args) {
+        assert.equal(this, h.api); assert.deepEqual(args, [7, prompt, options, "extra"]);
+        h.app.rootGraph = otherGraph; return Promise.resolve(response);
+    });
+    assert.equal(await h.api.queuePrompt(7, prompt, options, "extra"), response);
+    assert.equal(oldQueued.src, undefined);
+    assert.equal(other._psdPreviewVideo, oldOther);
+    assert.match(oldOther.src, /current.mp4/);
 });

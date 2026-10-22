@@ -492,14 +492,78 @@ function renderVideoPreviews(node, entries) {
   app.graph?.setDirtyCanvas?.(true, true);
 }
 
+function nodeByExecutionId(graph, executionId) {
+  if (!graph || !executionId) return null;
+  // ComfyUI flattens nested nodes as host:child (including deeper subgraphs).
+  for (let end = executionId.indexOf(":"); end !== -1;
+       end = executionId.indexOf(":", end + 1)) {
+    const host = graph.getNodeById?.(executionId.slice(0, end));
+    const node = nodeByExecutionId(host?.subgraph, executionId.slice(end + 1));
+    if (node) return node;
+  }
+  return graph.getNodeById?.(executionId) || null;
+}
+
+function queuedPreviewNodes(graph, output = {}, options) {
+  const targets = options?.partialExecutionTargets;
+  const ids = new Set();
+  function visit(id) {
+    id = String(id);
+    if (ids.has(id) || !output[id]) return;
+    ids.add(id);
+    for (const input of Object.values(output[id].inputs || {})) {
+      if (Array.isArray(input) && input.length === 2 && typeof input[1] === "number") {
+        visit(input[0]);
+      }
+    }
+  }
+  for (const id of targets?.length ? targets : Object.keys(output)) visit(id);
+  return [...ids].flatMap(executionId => {
+    if (output[executionId].class_type !== "PySceneDetectPreviewVideos") return [];
+    const node = nodeByExecutionId(graph, executionId);
+    return node?.type === "PySceneDetectPreviewVideos" ? [{ node, executionId }] : [];
+  });
+}
+
 app.registerExtension({
   name: "Comfyui-SceneDetect.PreviewVideos",
   setup() {
-    api.addEventListener("execution_start", () => {
-      for (const node of app.graph?.findNodesByType("PySceneDetectPreviewVideos") || []) {
-        renderVideoPreviews(node, []);
+    const queuePrompt = api.queuePrompt;
+    api.queuePrompt = async function (number, prompt, options) {
+      // Capture node instances before awaiting: another workflow can reuse their IDs.
+      const graph = app.rootGraph || app.graph;
+      const previews = queuedPreviewNodes(graph, prompt?.output, options).map(({ node, executionId }) => ({
+        node, executionId, graph: node.graph,
+      }));
+      // WebSocket results can beat the HTTP response. Match prompt IDs so a
+      // previous queued job cannot be mistaken for this run's cached result.
+      const completed = new Map();
+      const onExecuted = ({ detail }) => {
+        if (!detail?.prompt_id) return;
+        const ids = completed.get(detail.prompt_id) || new Set();
+        ids.add(String(detail.display_node || detail.node));
+        completed.set(detail.prompt_id, ids);
+      };
+      api.addEventListener("executed", onExecuted);
+      let result;
+      try {
+        result = await queuePrompt.apply(this, arguments);
+      } finally {
+        api.removeEventListener("executed", onExecuted);
       }
-    });
+      if (result?.prompt_id) {
+        const rejected = new Set(Object.entries(result.node_errors || {}).flatMap(
+          ([id, error]) => [id, ...(error.dependent_outputs || [])].map(String)
+        ));
+        for (const { node, executionId, graph } of previews) {
+          if (node.graph === graph && !rejected.has(executionId) &&
+              !completed.get(result.prompt_id)?.has(executionId)) {
+            renderVideoPreviews(node, []);
+          }
+        }
+      }
+      return result;
+    };
   },
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== "PySceneDetectPreviewVideos") {
