@@ -3,6 +3,10 @@ from typing import Any, Dict
 import json, ntpath, os, uuid, cv2, torch
 import numpy as np
 import folder_paths
+try:
+    from comfy_execution.graph_utils import ExecutionBlocker
+except ImportError:  # Older ComfyUI versions expose it from graph.
+    from comfy_execution.graph import ExecutionBlocker
 
 from ..utils.video_ops import (
     DetectorSettings,
@@ -233,7 +237,9 @@ class PySceneDetectVideo:
         )
 
         all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
-        return (batch, scenes_json, len(rows), scene_videos, all_scenes_text, per_scene_prompt_list)
+        # An empty list crashes non-list consumers such as Save Video.
+        video_output = scene_videos or [ExecutionBlocker(None)]
+        return (batch, scenes_json, len(rows), video_output, all_scenes_text, per_scene_prompt_list)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}

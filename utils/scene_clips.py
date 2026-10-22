@@ -5,9 +5,9 @@ import shutil
 from typing import Any, List, Tuple
 from scenedetect import FrameTimecode, is_ffmpeg_available, split_video_ffmpeg
 
-FFMPEG_COPY_ARGS = "-map 0:v:0 -map 0:a? -map 0:s? -c copy"
+FFMPEG_COPY_ARGS = "-map 0:v:0 -map 0:a? -sn -c copy"
 FFMPEG_REENCODE_ARGS = (
-    "-map 0:v:0 -map 0:a? -map 0:s? -c:v libx264 -preset veryfast -crf 22 -c:a aac"
+    "-map 0:v:0 -map 0:a? -sn -c:v libx264 -preset veryfast -crf 22 -c:a aac"
 )
 
 

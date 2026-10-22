@@ -1,8 +1,8 @@
 {
   "id": "ab990708-d467-4811-9acf-deecc450db5d",
   "revision": 0,
-  "last_node_id": 30,
-  "last_link_id": 26,
+  "last_node_id": 32,
+  "last_link_id": 27,
   "nodes": [
     {
       "id": 20,
@@ -179,7 +179,7 @@
           "name": "images",
           "type": "IMAGE",
           "links": [
-            21
+            27
           ],
           "slot_index": 0
         },
@@ -366,6 +366,74 @@
         null
       ],
       "title": "Per scene prompts"
+    },
+    {
+      "id": 31,
+      "type": "RebatchImages",
+      "pos": [
+        740,
+        -210
+      ],
+      "size": [
+        320,
+        100
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 27
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            21
+          ],
+          "shape": 6
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "Node name for S&R": "RebatchImages"
+      },
+      "widgets_values": [
+        1
+      ],
+      "title": "One image per scene / VLM item"
+    },
+    {
+      "id": 32,
+      "type": "Note",
+      "pos": [
+        740,
+        -460
+      ],
+      "size": [
+        640,
+        190
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "properties": {},
+      "widgets_values": [
+        "Per-scene VLM: connect Rebatch Images.IMAGE (batch_size=1) and SceneDetect.per_scene_prompt_list to the same VLM node that processes each list item individually. Both lists follow scene order. Do not connect the original IMAGE batch directly: that sends all scenes with every prompt. This example previews the lists without calling an external model."
+      ],
+      "title": "Pair each representative image with its scene prompt"
     }
   ],
   "links": [
@@ -379,7 +447,7 @@
     ],
     [
       21,
-      27,
+      31,
       0,
       26,
       0,
@@ -424,6 +492,14 @@
       30,
       0,
       "STRING"
+    ],
+    [
+      27,
+      27,
+      0,
+      31,
+      0,
+      "IMAGE"
     ]
   ],
   "groups": [],

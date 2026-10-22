@@ -99,7 +99,9 @@ class SceneClipTests(unittest.TestCase):
                         InputImpl.VideoFromFile(str(path)), method="content", threshold=10.0,
                         min_scene_len_sec=0.0, min_scene_len_frames=1, luma_only=False,
                     )
-                    self.assertEqual(result[3], [])
+                    self.assertEqual(len(result[3]), 1)
+                    self.assertIsInstance(result[3][0], video_node.ExecutionBlocker)
+                    self.assertIsNone(result[3][0].message)
             self.assertEqual(list(output.iterdir()), [])
 
 
