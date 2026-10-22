@@ -14,6 +14,7 @@ from ..utils.video_ops import (
     video_source_path,
 )
 from ..utils.scene_clips import load_video_from_file, split_scene_clips, stamp_scene_duration
+from ..utils.scene_text import format_scenes_for_llm
 from .detector_inputs import detector_input_types
 
 
@@ -78,12 +79,13 @@ class PySceneDetectVideo:
                 "backend": (["opencv", "pyav"], {"default": "opencv"}),
                 "split_clips": ("BOOLEAN", {"default": False}),
                 "split_reencode": ("BOOLEAN", {"default": True}),
+                "prompt_template": ("STRING", {"default": "", "multiline": True}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT", "VIDEO")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count", "scene_videos")
-    OUTPUT_IS_LIST = (False, False, False, True)
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "VIDEO", "STRING", "STRING")
+    RETURN_NAMES = ("images", "scenes_json", "scene_count", "scene_videos", "all_scenes_text", "per_scene_prompt_list")
+    OUTPUT_IS_LIST = (False, False, False, True, False, True)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -108,6 +110,7 @@ class PySceneDetectVideo:
         backend: str = "opencv",
         split_clips: bool = False,
         split_reencode: bool = True,
+        prompt_template: str = "",
         **detector_options,
     ):
         fps = float(video.get_frame_rate())
@@ -229,7 +232,8 @@ class PySceneDetectVideo:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows), scene_videos)
+        all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
+        return (batch, scenes_json, len(rows), scene_videos, all_scenes_text, per_scene_prompt_list)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}
