@@ -108,3 +108,55 @@ test("rerunning the node cannot reveal a stale pending clip", async () => {
     assert.equal(old.isConnected, false);
     assert.equal(old.src, undefined);
 });
+
+
+test("a truncated stream-copy clip restarts without waiting for a paused frame callback", async () => {
+    const events = new Map();
+    let plays = 0;
+    const video = {
+        duration: 3, currentTime: 3, isConnected: true,
+        addEventListener(name, handler) { events.set(name, handler); },
+        requestVideoFrameCallback() {}, pause() {},
+        play() { plays++; return Promise.resolve(); },
+    };
+    const preview = loadPreview();
+    preview.coverFromVideo = () => {};
+    preview.hideCover = () => {};
+    preview.waitForEventOrTimeout = () => Promise.resolve();
+    preview.waitForPresentedFrame = () => new Promise(() => {});
+    preview.attachLoopFromStart(video, 2, {});
+    assert.equal(typeof events.get("ended"), "function");
+    events.get("ended")();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(video.currentTime, 0);
+    assert.equal(plays, 1);
+});
+
+
+test("whole-file previews use native media looping for one-frame clips", () => {
+    const preview = loadPreview();
+    const video = {style: {}};
+    preview.stylePreviewVideo(video);
+    assert.equal(video.loop, true);
+    assert.equal(video.style.objectFit, "contain");
+});
+
+
+test("a one-frame clip can reveal even when no further frame callback arrives", async () => {
+    let expire;
+    let cancelled;
+    let cleared;
+    const preview = loadPreview({
+        setTimeout(callback) { expire = callback; return 9; },
+        clearTimeout(id) { cleared = id; },
+    });
+    const video = {
+        requestVideoFrameCallback() { return 7; },
+        cancelVideoFrameCallback(id) { cancelled = id; },
+    };
+    const presented = preview.waitForPresentedFrame(video);
+    expire();
+    await presented;
+    assert.equal(cancelled, 7);
+    assert.equal(cleared, 9);
+});
