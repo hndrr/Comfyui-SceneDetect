@@ -538,17 +538,21 @@ app.registerExtension({
       // WebSocket results can beat the HTTP response. Match prompt IDs so a
       // previous queued job cannot be mistaken for this run's cached result.
       const completed = new Map();
+      const started = new Set();
+      const onStarted = ({ detail }) => started.add(detail?.prompt_id);
       const onExecuted = ({ detail }) => {
         if (!detail?.prompt_id) return;
         const ids = completed.get(detail.prompt_id) || new Set();
         ids.add(String(detail.display_node || detail.node));
         completed.set(detail.prompt_id, ids);
       };
+      api.addEventListener("execution_start", onStarted);
       api.addEventListener("executed", onExecuted);
       let result;
       try {
         result = await queuePrompt.apply(this, arguments);
       } finally {
+        api.removeEventListener("execution_start", onStarted);
         api.removeEventListener("executed", onExecuted);
       }
       if (result?.prompt_id) {
@@ -556,8 +560,11 @@ app.registerExtension({
           ([id, error]) => [id, ...(error.dependent_outputs || [])].map(String)
         ));
         for (const { node, executionId, graph } of previews) {
-          if (node.graph === graph && !rejected.has(executionId) &&
-              !completed.get(result.prompt_id)?.has(executionId)) {
+          if (node.graph !== graph || rejected.has(executionId)) continue;
+          if (!started.has(result.prompt_id)) {
+            node._psdPendingPreviewRuns.add(result.prompt_id);
+          }
+          if (!completed.get(result.prompt_id)?.has(executionId)) {
             renderVideoPreviews(node, []);
           }
         }
@@ -573,6 +580,13 @@ app.registerExtension({
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const result = onNodeCreated?.apply(this, arguments);
+      this._psdPendingPreviewRuns = new Set();
+      this._psdOnPreviewExecutionStart = ({ detail }) => {
+        if (this._psdPendingPreviewRuns.delete(detail?.prompt_id)) {
+          renderVideoPreviews(this, []);
+        }
+      };
+      api.addEventListener("execution_start", this._psdOnPreviewExecutionStart);
       renderVideoPreviews(this, []);
       return result;
     };
@@ -587,6 +601,8 @@ app.registerExtension({
 
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
+      api.removeEventListener("execution_start", this._psdOnPreviewExecutionStart);
+      this._psdPendingPreviewRuns.clear();
       unloadPreviewVideos(this);
       return onRemoved?.apply(this, arguments);
     };
