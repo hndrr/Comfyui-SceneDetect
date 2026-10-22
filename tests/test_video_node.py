@@ -407,7 +407,7 @@ class VideoNodeTests(unittest.TestCase):
                     self.assertEqual(scene["duration_frames"], end_frame - start_frame)
 
     def test_legacy_video_without_cuts_returns_scene_and_frame(self):
-        images, scenes_json, count = legacy_node.PySceneDetectToImages().run(
+        result = legacy_node.PySceneDetectToImages().run(
             torch.full((218, 32, 32, 3), 0.5),
             {"loaded_fps": 10.0},
             method="content",
@@ -417,6 +417,7 @@ class VideoNodeTests(unittest.TestCase):
             luma_only=True,
         )
 
+        images, scenes_json, count = result[:3]
         self.assertEqual(count, 1)
         self.assertEqual(images.shape, (1, 32, 32, 3))
         self.assertAlmostEqual(images.mean().item(), 127 / 255, places=3)
