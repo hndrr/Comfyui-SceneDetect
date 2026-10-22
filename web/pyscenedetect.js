@@ -120,7 +120,7 @@ function applyStageSize(node, video) {
 
 function stylePreviewVideo(video) {
   video.controls = true;
-  video.loop = false;
+  video.loop = true;
   video.muted = true;
   video.playsInline = true;
   video.preload = "auto";
@@ -129,7 +129,7 @@ function stylePreviewVideo(video) {
     "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
   video.style.width = "100%";
   video.style.height = "100%";
-  video.style.objectFit = "fill";
+  video.style.objectFit = "contain";
   video.style.background = "#111";
   video.style.display = "block";
 }
@@ -154,7 +154,14 @@ function waitForPresentedFrame(video) {
     return Promise.resolve();
   }
   return new Promise((resolve) => {
-    video.requestVideoFrameCallback(() => resolve());
+    let callbackId;
+    const finish = () => {
+      clearTimeout(timeout);
+      if (callbackId !== undefined) video.cancelVideoFrameCallback?.(callbackId);
+      resolve();
+    };
+    const timeout = setTimeout(finish, 250);
+    callbackId = video.requestVideoFrameCallback(finish);
   });
 }
 
@@ -169,6 +176,7 @@ function ensureCover(stage) {
   cover.style.inset = "0";
   cover.style.width = "100%";
   cover.style.height = "100%";
+  cover.style.objectFit = "contain";
   cover.style.objectFit = "contain";
   cover.style.pointerEvents = "none";
   cover.style.zIndex = "3";
@@ -237,7 +245,7 @@ function attachLoopFromStart(video, sceneDuration, stage) {
   let restarting = false;
   const restart = async (time) => {
     const limit = playbackLimitSec(video, sceneDuration);
-    if (limit == null || restarting || !video.isConnected) {
+    if (limit == null || limit >= video.duration || restarting || !video.isConnected) {
       return;
     }
     if (time < limit - 1 / 120) {
@@ -249,7 +257,6 @@ function attachLoopFromStart(video, sceneDuration, stage) {
     try {
       video.currentTime = 0;
       await waitForEventOrTimeout(video, "seeked", 400);
-      await waitForPresentedFrame(video);
     } catch {
       // Keep the cover until the next successful start frame.
     }
@@ -257,6 +264,7 @@ function attachLoopFromStart(video, sceneDuration, stage) {
     video.play().catch(() => {});
     restarting = false;
   };
+  video.addEventListener("ended", () => restart(video.duration));
   const onFrame = (_now, meta) => {
     if (!video.isConnected) {
       return;
