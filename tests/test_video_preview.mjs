@@ -178,14 +178,17 @@ async function scopeHarness() {
     let extension;
     let queueHandler = async () => ({prompt_id: "accepted"});
     const app = {registerExtension(value) {extension = value;}};
-    const listeners = new Set();
+    const listeners = new Map();
     const api = {
         apiURL: path => path,
         queuePrompt(...args) { return queueHandler.apply(this, args); },
-        addEventListener(name, listener) { assert.equal(name, "executed"); listeners.add(listener); },
-        removeEventListener(name, listener) { assert.equal(name, "executed"); listeners.delete(listener); },
-        emitExecuted(detail) { for (const listener of listeners) listener({detail}); },
-        listenerCount() { return listeners.size; },
+        addEventListener(name, listener) {
+            const set = listeners.get(name) || new Set(); set.add(listener); listeners.set(name, set);
+        },
+        removeEventListener(name, listener) { listeners.get(name)?.delete(listener); },
+        emitExecuted(detail) { for (const listener of listeners.get("executed") || []) listener({detail}); },
+        emitStart(prompt_id) { for (const listener of listeners.get("execution_start") || []) listener({detail: {prompt_id}}); },
+        listenerCount(name = "executed") { return listeners.get(name)?.size || 0; },
     };
     const preview = loadPreview({app, api, document: {createElement: tag => new Element(tag)}});
     class PreviewNode {
@@ -226,6 +229,8 @@ test("an accepted run releases current/pending videos and cached results restore
     assert.match(restored.src, /current.mp4/);
     node.onRemoved();
     assert.equal(restored.src, undefined);
+    assert.equal(node._psdPendingPreviewRuns.size, 0);
+    assert.equal(h.api.listenerCount("execution_start"), 0);
 });
 
 test("partial execution resolves nested IDs without clearing a sibling preview with the same leaf ID", async () => {
@@ -261,12 +266,14 @@ test("a fast cached result is not erased when the queue response arrives later",
     const h = await scopeHarness(); const node = h.makeNode(28);
     h.app.rootGraph = graphWith([node]); await display(node, "old.mp4");
     h.setQueueHandler(async () => {
+        h.api.emitStart("fast");
         await display(node, "cached-current.mp4");
         h.api.emitExecuted({prompt_id: "fast", node: "28"});
         return {prompt_id: "fast"};
     });
     await h.api.queuePrompt(0, {output: {28: previewOutput()}});
     assert.match(node._psdPreviewVideo.src, /cached-current.mp4/);
+    assert.equal(node._psdPendingPreviewRuns.size, 0);
     assert.equal(h.api.listenerCount(), 0);
 });
 
@@ -314,4 +321,18 @@ test("workflow switches cannot clear another workflow with reused node IDs; queu
     assert.equal(oldQueued.src, undefined);
     assert.equal(other._psdPreviewVideo, oldOther);
     assert.match(oldOther.src, /current.mp4/);
+});
+
+
+test("a queued run clears only its preview again when an earlier job finishes after submission", async () => {
+    const h = await scopeHarness(); const selected = h.makeNode(28); const unrelated = h.makeNode(29);
+    h.app.rootGraph = graphWith([selected, unrelated]);
+    await display(selected, "old.mp4"); const control = await display(unrelated, "control.mp4");
+    h.setQueueHandler(async () => ({prompt_id: "waiting"}));
+    await h.api.queuePrompt(0, {output: {28: previewOutput(), 29: previewOutput()}}, {partialExecutionTargets: ["28"]});
+    await display(selected, "earlier-job-finished.mp4");
+    h.api.emitStart("waiting");
+    assert.equal(selected._psdPreviewVideo, null);
+    assert.equal(unrelated._psdPreviewVideo, control);
+    assert.match(control.src, /control.mp4/);
 });
