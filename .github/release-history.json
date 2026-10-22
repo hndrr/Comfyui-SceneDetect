@@ -26,6 +26,9 @@
     "1.2.3": {
       "sha": "9dddcd2a6c921060ddefe305e01576799af4e79f",
       "body": "- Fix Comfy Registry distribution of scene detection updates by excluding development-only files from published packages.\n- Keep release descriptions consistent between GitHub Releases and Comfy Registry."
+    },
+    "1.3.0": {
+      "body": "- The recommended video node now supports choosing OpenCV or PyAV for decoding, and selects representative frames using decoded timestamps for more reliable results with variable-frame-rate videos and short scenes.\n- Updated PySceneDetect compatibility to require version 0.7.2 or newer; PyAV can be installed optionally when it is not included with ComfyUI. Added guidance and a sample workflow for using VHS images with the native video node."
     }
   }
 }
