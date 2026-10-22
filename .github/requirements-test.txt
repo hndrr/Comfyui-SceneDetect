@@ -1,0 +1,12 @@
+-r ../requirements.txt
+
+# Dependencies needed to import ComfyUI v0.41.0's VIDEO API in the tests.
+torch
+av>=17.0.0
+einops
+packaging
+Pillow
+safetensors>=0.4.2
+scipy
+comfy-kitchen==0.2.37
+comfy-aimdo==0.5.6

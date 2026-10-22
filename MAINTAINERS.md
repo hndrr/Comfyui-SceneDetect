@@ -1,5 +1,22 @@
 # メンテナンス運用
 
+## テスト
+
+[Tests](.github/workflows/tests.yml) は、すべての PR の作成・更新・再オープン時、`master` への push 時、手動実行時に動きます。同じ PR に追加の push があった場合は、古い実行をキャンセルします。
+
+- **Python tests**: Python 3.12 と CPU 版 PyTorch で `tests/` の unittest を実行します。ComfyUI v0.41.0 のコミットを固定して取得し、実際の `VIDEO` API と OpenCV・PyAV の両方をテストします。ComfyUI または PyAV を読み込めない場合は、テストをスキップせず CI を失敗させます。
+- **JavaScript tests**: Node.js 22 で `tests/*.mjs` を実行します。
+
+手元で再現するときは、Python 3.12 の仮想環境に `.github/requirements-test.txt` の依存関係をインストールし、`PYTHONPATH` に ComfyUI のルートを指定します。
+
+```bash
+python -m pip install -r .github/requirements-test.txt
+PYTHONPATH=/path/to/ComfyUI python -m unittest discover -s tests -v
+node --test tests/*.mjs
+```
+
+ComfyUI の固定コミットを更新するときは、`.github/requirements-test.txt` の API 読み込みに必要な依存関係も確認します。リリース処理のテストは、既存の [Test release notes](.github/workflows/test_release_notes.yml) で実行します。
+
 ## Comfy Registry への公開
 
 公開設定は [publish_action.yml](.github/workflows/publish_action.yml) にあります。通常の変更は PR で `master` に集め、公開するタイミングで **Prepare release PR** を実行します。英語の要約生成・版数更新・`release/1.2.4` などの準備ブランチと PR の作成・CI を自動で行います。要約を目視で確認して PR を `master` にマージすると、自動公開します。
