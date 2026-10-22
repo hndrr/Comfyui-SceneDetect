@@ -12,6 +12,8 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
 - Optionally split detected scenes into temporary `VIDEO` clips for ComfyUI's built-in `Save Video`.
+
+- Preview a `VIDEO` or a list of clips without saving to the output directory.
 - Return one scene and its representative frame when no cuts are detected (`scene_count = 1`), for both `VIDEO` and Legacy VHS. Trimmed `VIDEO` inputs cover only the selected trim window.
 - Choose from `content`, `adaptive`, `threshold`, `hash`, and `histogram` detection methods.
 - Control the detection downscale factor while keeping representative images at their original resolution (unless `max_width` / `max_height` is set).
@@ -149,6 +151,12 @@ Use the native `VIDEO` node for new workflows, including those that already use 
 `Create Video` assigns a constant frame rate to the supplied images; setting VHS `force_rate` is optional. This makes detection times consistent with the newly created video, but it does not restore the original VFR timestamps. VHS's regular loader also uses nominal-FPS timing for `force_rate`, so that option alone does not preserve the original VFR timeline. For original-source timing, connect the built-in `Load Video` directly to `Video → Scenes` instead.
 
 This bridge retains the full image batch and encodes it before detection. Prefer direct `Load Video` for lower memory use and to avoid re-encoding. Existing VHS → Legacy workflows can remain unchanged; migration is not required.
+
+### `PySceneDetect: Preview Videos`
+
+Connect a `VIDEO` from ComfyUI's built-in `Load Video`, or a list of `VIDEO` clips. Use the arrows or scene number to switch clips. The player follows each clip's aspect ratio and loads only the selected clip. Files outside ComfyUI's temp directory are copied into temp for playback; output files are not created.
+
+The node supports ComfyUI's V3 API and the legacy node interface. It can be used independently of the SceneDetect nodes.
 
 ## JSON Output Example (`scenes_json`)
 
