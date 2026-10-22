@@ -23,6 +23,10 @@ def _as_video_list(video: Any) -> List[Any]:
 
 
 def _file_path_from_video(video: Any) -> str | None:
+    trim_window = getattr(video, "get_active_trim_window", None)
+    if callable(trim_window) and any(trim_window()):
+        # The source path still points to the untrimmed file. Use save_to().
+        return None
     source = getattr(video, "get_stream_source", None)
     if callable(source):
         value = source()

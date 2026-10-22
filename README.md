@@ -119,10 +119,10 @@ Detailed settings apply only to `custom`:
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
-  - `scene_videos` (`VIDEO` list): One clip per processed scene, or an empty list when splitting is disabled. Connect to ComfyUI's built-in `Save Video` to persist the clips.
+  - `scene_videos` (`VIDEO` list): One clip per processed scene, when splitting is enabled. Connect to ComfyUI's built-in `Save Video` to persist the clips. When splitting is disabled or there are no clips, downstream video consumers are skipped while images, JSON, and text outputs remain available.
 
   - `all_scenes_text` (`STRING`): One summary covering all processed scenes, for a single text LLM call.
-  - `per_scene_prompt_list` (`STRING` list): One prompt per scene, for a VLM alongside the representative images.
+  - `per_scene_prompt_list` (`STRING` list): One prompt per scene. For one image per prompt, pass `images` through the built-in `Rebatch Images` (`RebatchImages`) with `batch_size=1`, then connect that IMAGE list and this prompt list to the same per-item VLM node. Connecting the original image batch directly repeats the entire batch for every prompt.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
@@ -211,7 +211,7 @@ Existing workflows containing `PySceneDetectToImages` continue to load as the Le
 
 ## Scene Clips
 
-Enable `split_clips` on `PySceneDetect: Video → Scenes`. Each processed scene produces a `VIDEO` clip under ComfyUI's temp directory and gains a `clip_path` in `scenes_json`. Splitting respects the input trim window and `limit_scenes`. Clips remain in temp unless connected to `Save Video`.
+Enable `split_clips` on `PySceneDetect: Video → Scenes`. Each processed scene produces a `VIDEO` clip under ComfyUI's temp directory and gains a `clip_path` in `scenes_json`. Splitting respects the input trim window and `limit_scenes`. Clips remain in temp unless connected to `Save Video`. Video and audio are retained; subtitles are excluded so bitmap or other MP4-incompatible subtitle formats cannot break clipping. Disabling splitting skips connected video consumers without requiring the `Save Video` link to be removed.
 
 Re-encoding is enabled by default to preserve scene boundaries. Stream copy is faster but can include frames beyond a cut until the next keyframe. Only representative frames are decoded into an `IMAGE` batch; clip outputs stay file-backed.
 
@@ -221,7 +221,7 @@ The original `images`, `scenes_json`, and `scene_count` outputs remain in slots 
 
 Templates support `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, and `{duration_frames}`. Numeric format specifiers work, for example `{duration_sec:.3f}`. Unknown placeholders are preserved. Use `{{` and `}}` for literal braces.
 
-This package formats metadata locally and does not call an LLM API. Connect the text outputs to your existing LLM/VLM nodes.
+This package formats metadata locally and does not call an LLM API. For a per-scene VLM, connect `images → Rebatch Images (batch_size=1) → VLM.images` and `per_scene_prompt_list → VLM.prompt`. The VLM must process each list item individually, preserving scene order. The integrated sample shows the rebatch connection; replace its image/text previews with your VLM. For a single LLM call over all scenes, use `all_scenes_text` instead.
 
 ## Memory Behavior
 
