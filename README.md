@@ -8,7 +8,6 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Choose OpenCV or PyAV for video decoding in the recommended node.
 - Low-memory processing in the recommended node without materializing the complete video as a float32 `IMAGE` batch
 - Backward-compatible Legacy VHS node for existing workflows
-- VHS-compatible loader with PyAV/OpenCV selection and upstream frame timestamps for Legacy workflows
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
@@ -23,7 +22,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Python 3.10 or newer
 - [PySceneDetect 0.7.2 or newer, below 0.8](https://github.com/Breakthrough/PySceneDetect) and OpenCV (installed through this package's dependency list)
 - PyAV (`av`) for the `pyav` backend; it is already included in standard ComfyUI installations with `VIDEO` support
-- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only when using VHS's own loader; the VHS-compatible loader below does not require VHS
+- [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only for workflows using its video loader; the built-in `Load Video` path does not require VHS
 
 ## Installation
 
@@ -54,7 +53,6 @@ Installing from ComfyUI Manager also installs the Python dependencies listed bel
 
 - Node: `PySceneDetect: Video → Scenes` (recommended, built-in `VIDEO` input)
 - Legacy node: `PySceneDetect: Scenes → Images (Legacy VHS)`
-- Legacy loader: `PySceneDetect: Load Video (VHS Compatible)`
 - Category: `Video/PySceneDetect`
 
 Once installed, the node can be searched and placed directly inside ComfyUI.
@@ -64,7 +62,7 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
 | | Recommended | Legacy |
 |---|---|---|
 | SceneDetect node | `PySceneDetect: Video → Scenes` | `PySceneDetect: Scenes → Images (Legacy VHS)` |
-| Loader | ComfyUI built-in `Load Video` | `PySceneDetect: Load Video (VHS Compatible)` or VHS `Load Video (Upload)` |
+| Loader | ComfyUI built-in `Load Video` | VHS `Load Video (Upload)` |
 | Input | Lazy `VIDEO` | Full `IMAGE` batch + `VHS_VIDEOINFO` |
 | Memory use | Only compressed video decoding and representative frames | Full float32 frame batch remains in memory |
 | Use case | New workflows and long/high-resolution videos | Existing VHS workflows |
@@ -119,27 +117,27 @@ Detailed settings apply only to `custom`:
 
 
 The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
-The same detection methods and detector settings are available on both nodes. The `backend` option applies only to `Video → Scenes`; Legacy VHS receives already-decoded images. New widgets are appended after the existing widget slots.
+The same detection methods and detector settings are available on both nodes. The `backend` option applies only to `Video → Scenes`; Legacy VHS receives already-decoded images. Legacy keeps its existing widget order.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
 - Do not connect a VAE; latent batches are unsupported.
 - The node processes the supplied tensor one frame at a time, but the full VHS `IMAGE` batch still remains resident in memory.
 
-### `PySceneDetect: Load Video (VHS Compatible)`
+Legacy interprets the supplied frames at `loaded_fps` (falling back to `source_fps`). Ordinary VHS metadata has no per-frame timestamps, so this preserves the existing constant-FPS timing behavior rather than recovering the original VFR presentation times.
 
-To use PyAV with Legacy, replace only VHS's loader with this node. Connect output 1 (`IMAGE`) and output 4 (`VHS_VIDEOINFO`) to the existing Legacy node. The four output slots match VHS's regular loader: `IMAGE`, `frame_count`, `audio`, `video_info`. Existing VHS loaders and workflows remain supported without modification.
+### Using VHS images in new workflows
 
-- `video`: Select or upload a video from ComfyUI's input directory.
-- `backend`: `pyav` (default) or `opencv`, passed to PySceneDetect's `open_video`. Availability, decoding errors, and backend fallback follow PySceneDetect.
-- `load_audio`: Decode audio using ComfyUI's audio loader (requires `av`); silent videos return `None`. Missing audio dependencies produce a warning and `None` audio without failing video loading. Disable when audio is unnecessary.
+Use the native `VIDEO` node for new workflows, including those that already use VHS or edit an image batch:
 
-This loader reads the full video at its original size without resampling. It does not implement VHS's forced frame rate, skip/cap, resizing, VAE, format, or meta-batch controls. It is an output-compatible replacement, not a replacement for every VHS feature.
+1. Connect VHS `IMAGE` to ComfyUI's `Create Video.images`.
+2. Connect VHS `video_info` to `Video Info (Loaded)`, then its `fps` output to `Create Video.fps`. Use `loaded_fps` so forced rate and frame selection are reflected.
+3. Connect `Create Video.VIDEO` to `PySceneDetect: Video → Scenes.video`.
+4. If the source has audio and it is needed in the created video, also connect VHS `audio` to `Create Video.audio`.
 
-The `video_info` dictionary retains VHS's numeric fields and adds runtime-only `scenedetect_timecodes` and `scenedetect_end_position`: the upstream `FrameTimecode` for each decoded image and the final stream position. Legacy passes those timestamps to PySceneDetect instead of reconstructing time from the nominal FPS. JSON scene times and approximate frame numbers therefore follow upstream detection, including VFR. Representatives still come from the supplied image batch, including image-only edits. Keep frame order and count unchanged, and pass the matching `video_info` directly; timing metadata cannot follow frame insertion, removal, reordering, or FPS conversion automatically. A frame-count mismatch raises an error. Runtime timing objects are excluded from `scenes_json`.
+`Create Video` assigns a constant frame rate to the supplied images; setting VHS `force_rate` is optional. This makes detection times consistent with the newly created video, but it does not restore the original VFR timestamps. VHS's regular loader also uses nominal-FPS timing for `force_rate`, so that option alone does not preserve the original VFR timeline. For original-source timing, connect the built-in `Load Video` directly to `Video → Scenes` instead.
 
-Ordinary VHS metadata has no per-frame timestamps, so that path retains its existing constant-FPS interpretation. Neither the Legacy node ID nor its widget order changes.
-Duration/count fields remain the upstream stream estimates; on VFR sources they can differ from timestamp-based scene durations.
+This bridge retains the full image batch and encodes it before detection. Prefer direct `Load Video` for lower memory use and to avoid re-encoding. Existing VHS → Legacy workflows can remain unchanged; migration is not required.
 
 ## JSON Output Example (`scenes_json`)
 
@@ -185,8 +183,8 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 The samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
 - Recommended: `workflow/pyscene_workflow.json`
-- Legacy VHS: `workflow/pyscene_workflow_legacy_vhs.json`
-- Legacy with PyAV: `workflow/pyscene_workflow_legacy_pyav.json`
+- VHS images through native VIDEO (new workflows): `workflow/pyscene_workflow_vhs_video.json`
+- Existing Legacy VHS workflows: `workflow/pyscene_workflow_legacy_vhs.json`
 
 Existing workflows containing `PySceneDetectToImages` continue to load as the Legacy VHS node.
 
@@ -194,7 +192,7 @@ Existing workflows containing `PySceneDetectToImages` continue to load as the Le
 
 The recommended node receives a lazy `VIDEO` object from ComfyUI's built-in loader. PySceneDetect reads the original compressed file directly, and only the selected representative frames are returned as an `IMAGE` batch. It does not create a full float32 frame batch.
 
-Representative extraction makes a second sequential decoding pass through PySceneDetect. It selects actual decoded PTS within each scene's start-inclusive/end-exclusive bounds, including one-frame and VFR scenes; it does not change upstream scene boundaries. Legacy's timestamp-aware loader retains uint8 frames until allocating the float32 output batch, avoiding two full float32 batches during concatenation. The full Legacy output batch still needs to fit in memory.
+Representative extraction makes a second sequential decoding pass through PySceneDetect. It selects actual decoded PTS within each scene's start-inclusive/end-exclusive bounds, including one-frame and VFR scenes; it does not change upstream scene boundaries.
 
 The Legacy VHS path cannot release the frame batch supplied by VHS, but SceneDetect processes that batch one frame at a time without creating full RGB/BGR copies. For new workflows, use the built-in `Load Video` path to avoid the VHS batch allocation entirely.
 
