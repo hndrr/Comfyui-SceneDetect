@@ -16,7 +16,7 @@ from scenedetect.detectors import (
     HashDetector,
     HistogramDetector,
 )
-from scenedetect.video_stream import VideoStream
+from scenedetect.video_stream import SeekError, VideoStream
 
 
 @dataclass(frozen=True)
@@ -222,6 +222,18 @@ def pick_frame_index(row: Dict[str, Any], representative: str) -> int:
     return s
 
 
+def pick_frame_timecode(
+    scene: Tuple[FrameTimecode, FrameTimecode], representative: str
+) -> FrameTimecode:
+    """Return a selection target; the end target is an exclusive scene boundary."""
+    start, end = scene
+    if representative == "end":
+        return end
+    if representative == "middle":
+        return start + (end - start).seconds / 2.0
+    return start
+
+
 def resize_keep_ar(w: int, h: int, max_w: int, max_h: int) -> Tuple[int, int]:
     if max_w <= 0 and max_h <= 0:
         return w, h
@@ -257,8 +269,9 @@ def detect_scenes(
     hist_threshold: float = 0.05,
     downscale: int = 0,
     settings: DetectorSettings | None = None,
+    backend: str = "opencv",
 ):
-    video = open_video(video_path)
+    video = open_video(video_path, backend=backend)
     if start_time > 0:
         video.seek(start_time)
     return detect_scenes_from_video(
@@ -315,7 +328,7 @@ def detect_scenes_from_video(
         )
         scene_list = manager.get_scene_list(start_in_scene=True)
         # Fade-to-white detection can emit an initial cut at frame zero.
-        scene_list = [(start, end) for start, end in scene_list if end.frame_num > start.frame_num]
+        scene_list = [(start, end) for start, end in scene_list if end > start]
     finally:
         # Ensure file-backed streams are released even if detection raises.
         release = getattr(video, "release", None)
@@ -341,18 +354,56 @@ def video_source_path(source: Any):
         yield path
 
 
-def read_video_frames(video_path: str, frame_indices: List[int]) -> Dict[int, np.ndarray]:
-    capture = cv2.VideoCapture(video_path)
-    if not capture.isOpened():
-        raise RuntimeError(f"Failed to open video: {video_path}")
+def read_scene_frames(
+    video_path: str,
+    scene_list: List[Tuple[FrameTimecode, FrameTimecode]],
+    representative: str = "start",
+    backend: str = "opencv",
+) -> List[Tuple[FrameTimecode, np.ndarray]]:
+    """Select images within upstream scene bounds using decoded presentation times.
 
-    frames: Dict[int, np.ndarray] = {}
+    A nominal frame period is not the previous frame's PTS on VFR sources. Read
+    forward through the public VideoStream API after seeking before the first
+    scene. If the seek overshoots or fails, restart sequential decoding. Only
+    selected frames and one current candidate are retained in memory.
+    """
+    if not scene_list:
+        return []
+
+    video = open_video(video_path, backend=backend)
+    frames = []
     try:
-        for index in sorted(set(frame_indices)):
-            capture.set(cv2.CAP_PROP_POS_FRAMES, index)
-            ok, frame = capture.read()
-            if ok:
-                frames[index] = frame
+        first_start = scene_list[0][0]
+        if video.is_seekable and first_start.seconds > 1.0:
+            try:
+                video.seek(first_start.seconds - 1.0)
+                frame = video.read()
+            except SeekError:
+                frame = False
+            if not isinstance(frame, np.ndarray) or video.position > first_start:
+                video.reset()
+                frame = video.read()
+        else:
+            frame = video.read()
+        for scene in scene_list:
+            start, end = scene
+            target = pick_frame_timecode(scene, representative)
+            candidate = None
+            while isinstance(frame, np.ndarray):
+                position = video.position
+                if position >= end:
+                    break
+                if position >= start:
+                    candidate = (position, frame)
+                    if representative == "start" or (
+                        representative == "middle" and position >= target
+                    ):
+                        break
+                frame = video.read()
+            if candidate is None:
+                raise ValueError(f"No representative frame decoded inside scene {start} - {end}.")
+            frames.append(candidate)
     finally:
-        capture.release()
+        # VideoStream has no public close(); drop it before temporary source cleanup.
+        del video
     return frames
