@@ -334,7 +334,7 @@ class VideoOpsTests(unittest.TestCase):
             video_path = Path(tmpdir) / "hard-cut.avi"
             writer = cv2.VideoWriter(
                 str(video_path),
-                cv2.VideoWriter_fourcc(*"MJPG"),
+                cv2.VideoWriter_fourcc(*"FFV1"),  # Preserve exact pixel values across codec builds.
                 10.0,
                 (32, 32),
             )
