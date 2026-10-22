@@ -1,0 +1,159 @@
+from __future__ import annotations
+from typing import Any, Dict, List
+import os
+import shutil
+import uuid
+
+import folder_paths
+
+try:
+    from comfy_api.latest import io
+except ImportError:
+    io = None
+
+_NODE_BASE = io.ComfyNode if io is not None else object
+
+
+def _as_video_list(video: Any) -> List[Any]:
+    if video is None:
+        return []
+    if isinstance(video, list):
+        return video
+    return [video]
+
+
+def _file_path_from_video(video: Any) -> str | None:
+    source = getattr(video, "get_stream_source", None)
+    if callable(source):
+        value = source()
+        if isinstance(value, (str, os.PathLike)) and os.path.isfile(value):
+            return os.fspath(value)
+    path = getattr(video, "path", None)
+    if isinstance(path, (str, os.PathLike)) and os.path.isfile(path):
+        return os.fspath(path)
+    if isinstance(video, (str, os.PathLike)) and os.path.isfile(video):
+        return os.fspath(video)
+    return None
+
+
+def preview_entry_for_path(path: str) -> Dict[str, Any]:
+    path = os.path.realpath(path)
+    if not os.path.isfile(path):
+        raise ValueError(f"Video file was not found: {path}")
+
+    temp_root = os.path.realpath(folder_paths.get_temp_directory())
+    if folder_paths.is_within_directory(temp_root, path):
+        relative = os.path.relpath(path, temp_root)
+        subfolder, filename = os.path.split(relative)
+        return {
+            "filename": filename,
+            "subfolder": "" if subfolder == "." else subfolder.replace("\\", "/"),
+            "type": "temp",
+        }
+
+    dest_dir = os.path.join(temp_root, "scenedetect_preview")
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_name = f"{uuid.uuid4().hex}{os.path.splitext(path)[1] or '.mp4'}"
+    shutil.copy2(path, os.path.join(dest_dir, dest_name))
+    return {
+        "filename": dest_name,
+        "subfolder": "scenedetect_preview",
+        "type": "temp",
+    }
+
+
+def _scene_duration_sec(video: Any) -> float | None:
+    value = getattr(video, "scene_duration_sec", None)
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value)
+    return None
+
+
+def preview_entry_for_video(video: Any) -> Dict[str, Any]:
+    path = _file_path_from_video(video)
+    if path is not None:
+        entry = preview_entry_for_path(path)
+    else:
+        save_to = getattr(video, "save_to", None)
+        if not callable(save_to):
+            raise ValueError("Preview Videos requires a file-backed VIDEO input.")
+
+        dest_dir = os.path.join(folder_paths.get_temp_directory(), "scenedetect_preview")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, f"{uuid.uuid4().hex}.mp4")
+        save_to(dest_path)
+        entry = preview_entry_for_path(dest_path)
+
+    duration = _scene_duration_sec(video)
+    if duration is not None:
+        entry["duration_sec"] = duration
+    return entry
+
+
+_PREVIEW_TOOLTIP = (
+    "Connect a VIDEO or a list of VIDEO clips. "
+    "Files stay in temp; nothing is written to output."
+)
+_PREVIEW_DESCRIPTION = (
+    "Preview VIDEO clips without saving them to the output directory. "
+    "Use the arrows or scene number to switch between clips."
+)
+
+
+class PySceneDetectPreviewVideos(_NODE_BASE):
+    # V1 attributes only when comfy_api is missing. Overriding INPUT_TYPES /
+    # FUNCTION on io.ComfyNode hides the V3 schema and skips execute().
+    if io is None:
+        FUNCTION = "preview"
+        RETURN_TYPES = ()
+        CATEGORY = "Video/PySceneDetect"
+        OUTPUT_NODE = True
+        INPUT_IS_LIST = True
+        DESCRIPTION = _PREVIEW_DESCRIPTION
+
+        @classmethod
+        def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+            return {
+                "required": {
+                    "video": (
+                        "VIDEO",
+                        {"tooltip": _PREVIEW_TOOLTIP},
+                    ),
+                }
+            }
+
+    @classmethod
+    def define_schema(cls):
+        if io is None:
+            raise RuntimeError("ComfyUI V3 API is required.")
+        return io.Schema(
+            node_id="PySceneDetectPreviewVideos",
+            display_name="PySceneDetect: Preview Videos",
+            category="Video/PySceneDetect",
+            description=_PREVIEW_DESCRIPTION,
+            inputs=[io.Video.Input("video", tooltip=_PREVIEW_TOOLTIP)],
+            outputs=[],
+            is_output_node=True,
+            is_input_list=True,
+        )
+
+    @classmethod
+    def execute(cls, video):
+        payload = cls().preview(video)
+        return io.NodeOutput(ui=payload["ui"])
+
+    def preview(self, video: Any):
+        results = [
+            preview_entry_for_video(item)
+            for item in _as_video_list(video)
+            if item is not None
+        ]
+        # Use `scene_previews`, not `videos`/`images`: core VideoPreview would
+        # otherwise mount a second player that flashes the previous clip.
+        return {"ui": {"scene_previews": results}}
+
+
+NODE_CLASS_MAPPINGS = {"PySceneDetectPreviewVideos": PySceneDetectPreviewVideos}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "PySceneDetectPreviewVideos": "PySceneDetect: Preview Videos"
+}
