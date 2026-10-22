@@ -83,7 +83,6 @@ function clampSceneIndex(index, count) {
 }
 
 const PREVIEW_TOOLBAR_H = 40;
-const PREVIEW_MIN_STAGE_H = 140;
 const PREVIEW_MAX_STAGE_H = 560;
 
 function stageSizeForAspect(nodeWidth, aspect) {
@@ -93,10 +92,6 @@ function stageSizeForAspect(nodeWidth, aspect) {
   if (height > PREVIEW_MAX_STAGE_H) {
     height = PREVIEW_MAX_STAGE_H;
     width = height * aspect;
-  }
-  if (height < PREVIEW_MIN_STAGE_H && aspect >= 1) {
-    height = PREVIEW_MIN_STAGE_H;
-    width = Math.min(inner, height * aspect);
   }
   return { width: Math.round(width), height: Math.round(height) };
 }
@@ -398,7 +393,7 @@ function renderVideoPreviews(node, entries) {
   node._psdPreviewAspect = null;
   node._psdPreviewIndexInput = null;
   node._psdPreviewTotalLabel = null;
-  node._psdPreviewLoadToken = 0;
+  node._psdPreviewLoadToken = (node._psdPreviewLoadToken || 0) + 1;
   hideNativeFirstClipPreview(node);
 
   if (!entries.length) {

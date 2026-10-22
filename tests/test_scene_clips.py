@@ -81,7 +81,7 @@ class SceneClipTests(unittest.TestCase):
                             min_scene_len_frames=1, luma_only=False, limit_scenes=limit,
                             split_clips=True,
                         )
-                        images, scenes_json, count, clips = result
+                        images, scenes_json, count, clips = result[:4]
                         scenes = json.loads(scenes_json)["scenes"]
                         self.assertEqual(count, len(expected_ranges))
                         self.assertEqual(images.shape, (count, 32, 32, 3))

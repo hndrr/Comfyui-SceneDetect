@@ -31,8 +31,6 @@ def _file_path_from_video(video: Any) -> str | None:
     path = getattr(video, "path", None)
     if isinstance(path, (str, os.PathLike)) and os.path.isfile(path):
         return os.fspath(path)
-    if isinstance(video, (str, os.PathLike)) and os.path.isfile(video):
-        return os.fspath(video)
     return None
 
 
