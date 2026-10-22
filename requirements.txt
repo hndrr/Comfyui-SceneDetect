@@ -1,3 +1,3 @@
-scenedetect-headless>=0.7.1,<0.8
+scenedetect-headless>=0.7.2,<0.8
 opencv-python-headless>=4.9
 numpy

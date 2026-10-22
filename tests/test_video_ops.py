@@ -7,7 +7,12 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 import torch
-from scenedetect import FrameTimecode
+from scenedetect import FrameTimecode, open_video
+from scenedetect.backends import AVAILABLE_BACKENDS
+from scenedetect.common import Timecode
+from scenedetect.video_stream import SeekError
+
+from video_fixtures import write_timing_video
 
 from utils.video_ops import (
     DetectorSettings,
@@ -15,12 +20,173 @@ from utils.video_ops import (
     choose_detector,
     detect_scenes,
     detect_scenes_from_video,
-    read_video_frames,
+    pick_frame_timecode,
+    read_scene_frames,
     timecodes_to_dict,
 )
 
 
 class VideoOpsTests(unittest.TestCase):
+    def test_representative_timecodes_preserve_pts(self):
+        start = FrameTimecode(Timecode(1001, Fraction(1, 1000)), 30.0)
+        end = FrameTimecode(Timecode(2003, Fraction(1, 1000)), 30.0)
+
+        self.assertIs(pick_frame_timecode((start, end), "start"), start)
+        middle = pick_frame_timecode((start, end), "middle")
+        self.assertAlmostEqual(middle.seconds, 1.502, places=3)
+        self.assertEqual(middle.time_base, Fraction(1, 1000))
+        self.assertIs(pick_frame_timecode((start, end), "end"), end)
+
+    def test_scene_reads_distinguish_pts_with_the_same_nominal_frame_number(self):
+        timecodes = [
+            FrameTimecode(Timecode(1000, Fraction(1, 1000)), 30.0),
+            FrameTimecode(Timecode(1001, Fraction(1, 1000)), 30.0),
+            FrameTimecode(Timecode(1002, Fraction(1, 1000)), 30.0),
+        ]
+        self.assertEqual(len({timecode.frame_num for timecode in timecodes}), 1)
+        scenes = list(zip(timecodes, timecodes[1:] + [timecodes[-1] + 1]))
+        decoded = iter(zip(timecodes, (0, 128, 255)))
+        video = Mock()
+
+        def read():
+            item = next(decoded, None)
+            if item is None:
+                return False
+            video.position, value = item
+            return np.full((8, 8, 3), value, dtype=np.uint8)
+
+        video.read.side_effect = read
+        with patch("utils.video_ops.open_video", return_value=video) as open_stream:
+            frames = read_scene_frames("vfr.mp4", scenes, "end", backend="pyav")
+
+        open_stream.assert_called_once_with("vfr.mp4", backend="pyav")
+        self.assertEqual(len(frames), 3)
+        for (actual, frame), expected, value in zip(frames, timecodes, (0, 128, 255)):
+            self.assertIs(actual, expected)
+            self.assertAlmostEqual(frame.mean(), value)
+
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_late_scene_reads_skip_the_untrimmed_prefix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "long.avi")
+            writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (32, 32))
+            self.assertTrue(writer.isOpened())
+            try:
+                for _ in range(1000):
+                    writer.write(np.full((32, 32, 3), 128, dtype=np.uint8))
+            finally:
+                writer.release()
+            scene = (FrameTimecode(90.0, 10.0), FrameTimecode(95.0, 10.0))
+            for backend in ("opencv", "pyav"):
+                with self.subTest(backend=backend):
+                    video = open_video(path, backend=backend)
+                    with (
+                        patch("utils.video_ops.open_video", return_value=video),
+                        patch.object(video, "read", wraps=video.read) as read,
+                    ):
+                        frames = read_scene_frames(path, [scene], "end", backend=backend)
+                    self.assertLess(read.call_count, 100)
+                    position, frame = frames[0]
+                    self.assertGreaterEqual(position, scene[0])
+                    self.assertLess(position, scene[1])
+                    self.assertAlmostEqual(frame.mean(), 128, delta=3)
+                    del video
+
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_trimmed_vfr_reads_keep_short_and_final_scenes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "short-vfr.mp4")
+            write_timing_video(path, vfr=True, short_scenes=True)
+            for backend in ("opencv", "pyav"):
+                scenes, _ = detect_scenes(path, "content", 10.0, 0.0, 1, True, backend=backend)
+                for first in (1, 3):
+                    for representative in ("start", "middle", "end"):
+                        with self.subTest(backend=backend, first=first, representative=representative):
+                            frames = read_scene_frames(path, scenes[first:], representative, backend)
+                            self.assertEqual(len(frames), len(scenes[first:]))
+                            for (position, frame), (start, end), value in zip(
+                                frames, scenes[first:], (0, 255, 128, 30, 200, 70)[first:]
+                            ):
+                                self.assertGreaterEqual(position, start)
+                                self.assertLess(position, end)
+                                self.assertAlmostEqual(frame.mean(), value, delta=3)
+
+    def test_scene_reads_restart_after_unsafe_seek(self):
+        scene = (FrameTimecode(90.0, 30.0), FrameTimecode(90.1, 30.0))
+        for failure in ("overshoot", "eof", "seek_error"):
+            with self.subTest(failure=failure):
+                video = Mock(is_seekable=True)
+                initial = [(91.0, 255)] if failure == "overshoot" else [None]
+                if failure == "seek_error":
+                    initial = []
+                    video.seek.side_effect = SeekError("seek failed")
+                decoded = iter(initial + [(0.0, 0), (89.9, 0), (90.0, 128)])
+
+                def read():
+                    item = next(decoded, None)
+                    if item is None:
+                        return False
+                    seconds, value = item
+                    video.position = FrameTimecode(seconds, 30.0)
+                    return np.full((8, 8, 3), value, dtype=np.uint8)
+
+                video.read.side_effect = read
+                with patch("utils.video_ops.open_video", return_value=video):
+                    frames = read_scene_frames("vfr.mp4", [scene])
+                video.seek.assert_called_once_with(89.0)
+                video.reset.assert_called_once_with()
+                self.assertEqual(frames[0][0], scene[0])
+                self.assertEqual(frames[0][1].mean(), 128)
+
+    def test_missing_scene_frame_raises_instead_of_silently_dropping_an_image(self):
+        video = Mock()
+        video.read.return_value = False
+        scene = (FrameTimecode(0, 30.0), FrameTimecode(1, 30.0))
+        with patch("utils.video_ops.open_video", return_value=video):
+            with self.assertRaisesRegex(ValueError, "No representative frame"):
+                read_scene_frames("missing.mp4", [scene])
+        self.assertEqual(read_scene_frames("unused.mp4", []), [])
+
+    @unittest.skipUnless("pyav" in AVAILABLE_BACKENDS, "PyAV is not available")
+    def test_vfr_representatives_use_scene_times_with_both_backends(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "vfr.mp4"
+            write_timing_video(path, vfr=True)
+            for backend in ("opencv", "pyav"):
+                with self.subTest(backend=backend):
+                    scenes, _ = detect_scenes(
+                        str(path), "content", 10.0, 0.0, 1, True,
+                        backend=backend,
+                    )
+                    self.assertEqual(len(scenes), 2)
+                    self.assertAlmostEqual(scenes[1][0].seconds, 3.0)
+                    for representative in ("start", "middle", "end"):
+                        frames = read_scene_frames(str(path), scenes, representative, backend=backend)
+                        self.assertLess(frames[0][1].mean(), 5)
+                        self.assertGreater(frames[1][1].mean(), 250)
+                        for (position, _), (start, end) in zip(frames, scenes):
+                            self.assertGreaterEqual(position, start)
+                            self.assertLess(position, end)
+
+    def test_backend_fallback_is_left_to_pyscenedetect(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "fallback.avi")
+            writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (32, 32))
+            self.assertTrue(writer.isOpened())
+            try:
+                for _ in range(20):
+                    writer.write(np.full((32, 32, 3), 128, dtype=np.uint8))
+            finally:
+                writer.release()
+
+            with patch.dict(AVAILABLE_BACKENDS, {"opencv": AVAILABLE_BACKENDS["opencv"]}, clear=True):
+                scenes, fps = detect_scenes(path, "content", 10.0, 0.0, 1, True, backend="pyav")
+                frames = read_scene_frames(path, scenes, backend="pyav")
+
+        self.assertEqual([(start.frame_num, end.frame_num) for start, end in scenes], [(0, 20)])
+        self.assertAlmostEqual(fps, 10.0)
+        self.assertAlmostEqual(frames[0][1].mean(), 128, delta=3)
+
     def test_custom_kernel_sizes_match_documented_automatic_range(self):
         for method in ("content", "adaptive"):
             for size, expected in ((0, None), (1, None), (2, None), (3, 3), (4, 5), (5, 5)):
@@ -151,6 +317,18 @@ class VideoOpsTests(unittest.TestCase):
         self.assertFalse(manager.auto_downscale)
         self.assertEqual(manager.downscale, 2)
 
+    def test_positive_pts_scenes_survive_equal_nominal_frame_numbers(self):
+        times = [FrameTimecode(Timecode(t, Fraction(1, 1000)), 30.0) for t in (1000, 1001, 1002)]
+        expected = list(zip(times, times[1:]))
+        self.assertEqual(len({time.frame_num for time in times}), 1)
+        manager = Mock()
+        manager.get_scene_list.return_value = [(times[0], times[0]), *expected]
+        with patch("utils.video_ops.SceneManager", return_value=manager):
+            scenes, _ = detect_scenes_from_video(
+                Mock(frame_rate=Fraction(30)), "content", 10.0, 0.0, 1, True,
+            )
+        self.assertEqual(scenes, expected)
+
     def test_detect_scenes_finds_hard_cut(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = Path(tmpdir) / "hard-cut.avi"
@@ -177,15 +355,15 @@ class VideoOpsTests(unittest.TestCase):
                 min_scene_len_frames=1,
                 luma_only=False,
             )
-            selected_frames = read_video_frames(str(video_path), [0, 20])
+            selected_frames = read_scene_frames(str(video_path), scenes)
 
         self.assertAlmostEqual(fps, 10.0)
         self.assertEqual(
             [(start.frame_num, end.frame_num) for start, end in scenes],
             [(0, 20), (20, 40)],
         )
-        np.testing.assert_array_equal(selected_frames[0][0, 0], [0, 0, 0])
-        np.testing.assert_array_equal(selected_frames[20][0, 0], [255, 255, 255])
+        np.testing.assert_array_equal(selected_frames[0][1][0, 0], [0, 0, 0])
+        np.testing.assert_array_equal(selected_frames[1][1][0, 0], [255, 255, 255])
 
     def test_detect_scenes_finds_hard_cut_in_tensor_stream(self):
         frames = torch.cat(
