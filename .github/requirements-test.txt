@@ -1,3 +1,4 @@
+-c constraints-test.txt
 -r ../requirements.txt
 
 # Dependencies needed to import ComfyUI v0.41.0's VIDEO API in the tests.

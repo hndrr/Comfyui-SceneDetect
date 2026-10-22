@@ -38,9 +38,10 @@ jobs:
                   cache-dependency-path: |
                       requirements.txt
                       .github/requirements-test.txt
+                      .github/constraints-test.txt
             - name: Install test dependencies
               run: |
-                  python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+                  python -m pip install -c .github/constraints-test.txt torch --index-url https://download.pytorch.org/whl/cpu
                   python -m pip install -r .github/requirements-test.txt
             - name: Verify integration test dependencies
               run: |
