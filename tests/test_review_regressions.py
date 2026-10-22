@@ -11,7 +11,7 @@ import torch
 from scenedetect import FrameTimecode
 
 from test_preview_node import _load_preview_node
-from test_video_node import InputImpl, video_node
+from test_video_node import InputImpl, legacy_node, video_node
 from video_fixtures import write_timing_video
 from utils.scene_clips import split_scene_clips
 
@@ -33,6 +33,30 @@ class ReviewRegressionTests(unittest.TestCase):
                 empty = node.run(InputImpl.VideoFromFile(str(source)), 'content', 10.0, 0.0, 1, True, split_clips=True)
             self.assertEqual(empty[2], 0)
             self.assertIsInstance(empty[3][0], video_node.ExecutionBlocker)
+
+    def test_zero_scene_prompt_consumers_are_blocked_in_both_nodes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / 'source.mp4'
+            write_timing_video(source)
+            cases = (
+                (video_node, video_node.PySceneDetectVideo,
+                 (InputImpl.VideoFromFile(str(source)),), 'detect_scenes'),
+                (legacy_node, legacy_node.PySceneDetectToImages,
+                 (torch.zeros((2, 4, 4, 3)), {'loaded_fps': 30.0}), 'detect_scenes_from_video'),
+            )
+            for module, cls, args, detector in cases:
+                with self.subTest(node=cls.__name__):
+                    with patch.object(module, detector, return_value=([], 30.0)):
+                        result = cls().run(*args, 'content', 10.0, 0.0, 1, True)
+                    # Preserve the existing non-list output contracts and fallback image.
+                    self.assertEqual(result[0].shape, (1, 1, 1, 3))
+                    self.assertEqual(result[0].sum().item(), 0)
+                    self.assertEqual(json.loads(result[1])['scenes'], [])
+                    self.assertEqual(result[2], 0)
+                    self.assertEqual(result[-2], '# Scenes (0)')
+                    self.assertEqual(len(result[-1]), 1)
+                    self.assertIsInstance(result[-1][0], module.ExecutionBlocker)
+                    self.assertIsNone(result[-1][0].message)
 
     def test_trimmed_preview_contains_only_active_frames(self):
         with tempfile.TemporaryDirectory() as tmpdir:

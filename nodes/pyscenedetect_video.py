@@ -239,7 +239,8 @@ class PySceneDetectVideo:
         all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
         # An empty list crashes non-list consumers such as Save Video.
         video_output = scene_videos or [ExecutionBlocker(None)]
-        return (batch, scenes_json, len(rows), video_output, all_scenes_text, per_scene_prompt_list)
+        prompt_output = per_scene_prompt_list or [ExecutionBlocker(None)]
+        return (batch, scenes_json, len(rows), video_output, all_scenes_text, prompt_output)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}

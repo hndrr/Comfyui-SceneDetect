@@ -64,27 +64,33 @@ for (const phase of ["load", "reveal"]) {
 }
 
 
-test("rerunning the node cannot reveal a stale pending clip", async () => {
-    class Element {
-        constructor(tag) {
-            this.tag = tag; this.style = {}; this.dataset = {};
-            this.children = []; this.isConnected = true; this.duration = 2;
-        }
-        append(...children) { for (const child of children) this.appendChild(child); }
-        appendChild(child) { this.children.push(child); child.parent = this; }
-        replaceChildren() { this.children = []; }
-        addEventListener() {}
-        querySelector() { return null; }
-        pause() {}
-        load() {}
-        play() { return Promise.resolve(); }
-        removeAttribute(name) { delete this[name]; }
-        getAttribute(name) { return this[name]; }
-        remove() {
-            if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this);
-            this.isConnected = false;
-        }
+class Element {
+    constructor(tag) {
+        this.tag = tag; this.style = {}; this.dataset = {};
+        this.children = []; this.isConnected = true; this.duration = 2;
     }
+    append(...children) { for (const child of children) this.appendChild(child); }
+    appendChild(child) { this.children.push(child); child.parent = this; }
+    replaceChildren() { this.children = []; }
+    addEventListener() {}
+    querySelector() { return null; }
+    querySelectorAll(tag) {
+        return this.children.flatMap(child => [
+            ...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag),
+        ]);
+    }
+    pause() {}
+    load() {}
+    play() { return Promise.resolve(); }
+    removeAttribute(name) { delete this[name]; }
+    getAttribute(name) { return this[name]; }
+    remove() {
+        if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this);
+        this.isConnected = false;
+    }
+}
+
+test("rerunning the node cannot reveal a stale pending clip", async () => {
     const pending = new Map();
     const preview = loadPreview({document: {createElement: tag => new Element(tag)}});
     preview.waitForStartFrame = video => new Promise(resolve => pending.set(video, resolve));
@@ -159,4 +165,49 @@ test("a one-frame clip can reveal even when no further frame callback arrives", 
     await presented;
     assert.equal(cancelled, 7);
     assert.equal(cleared, 9);
+});
+
+
+test("execution start clears all clips; cached execution restores current results", async () => {
+    let extension;
+    const listeners = new Map();
+    const nodes = [];
+    const preview = loadPreview({
+        app: { registerExtension(value) { extension = value; }, graph: {
+            findNodesByType(type) { assert.equal(type, "PySceneDetectPreviewVideos"); return nodes; },
+        } },
+        api: { apiURL: path => path, addEventListener(name, callback) { listeners.set(name, callback); } },
+        document: { createElement: tag => new Element(tag) },
+    });
+    class PreviewNode {
+        constructor() { this.size = [320, 320]; this.widgets = []; }
+        addDOMWidget() { return {}; }
+        computeSize() { return this.size; }
+        setSize(size) { this.size = size; }
+    }
+    await extension.beforeRegisterNodeDef(PreviewNode, { name: "PySceneDetectPreviewVideos" });
+    extension.setup();
+    const node = new PreviewNode(); nodes.push(node); node.onNodeCreated();
+    assert.match(node._psdVideoPreviewContainer.children[0].textContent, /No videos/);
+    preview.waitForStartFrame = () => Promise.resolve();
+    preview.waitForPresentedFrame = () => Promise.resolve();
+    node.onExecuted({ scene_previews: [{filename: "current.mp4"}] });
+    await new Promise(resolve => setImmediate(resolve));
+    const old = node._psdPreviewVideo;
+    assert.match(old.src, /current.mp4/);
+    const pending = new Element("video"); pending.src = "pending.mp4";
+    node._psdPreviewStage.appendChild(pending);
+    listeners.get("execution_start")();
+    assert.equal(old.src, undefined);
+    assert.equal(pending.src, undefined);
+    assert.equal(node._psdVideoPreviewContainer.querySelectorAll("video").length, 0);
+    assert.equal(node._psdPreviewEntries.length, 0);
+    assert.match(node._psdVideoPreviewContainer.children[0].textContent, /No videos/);
+    // ComfyUI emits onExecuted for cached outputs after execution_start, too.
+    node.onExecuted({ scene_previews: [{filename: "current.mp4"}] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(node._psdPreviewVideo.src, /current.mp4/);
+    const restored = node._psdPreviewVideo;
+    node.onRemoved();
+    assert.equal(restored.src, undefined);
 });

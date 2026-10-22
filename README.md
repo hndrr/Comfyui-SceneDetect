@@ -211,7 +211,7 @@ Existing workflows containing `PySceneDetectToImages` continue to load as the Le
 
 ## Scene Clips
 
-Enable `split_clips` on `PySceneDetect: Video → Scenes`. Each processed scene produces a `VIDEO` clip under ComfyUI's temp directory and gains a `clip_path` in `scenes_json`. Splitting respects the input trim window and `limit_scenes`. Clips remain in temp unless connected to `Save Video`. Video and audio are retained; subtitles are excluded so bitmap or other MP4-incompatible subtitle formats cannot break clipping. Disabling splitting skips connected video consumers without requiring the `Save Video` link to be removed.
+Enable `split_clips` on `PySceneDetect: Video → Scenes`. Each processed scene produces a `VIDEO` clip under ComfyUI's temp directory and gains a `clip_path` in `scenes_json`. Splitting respects the input trim window and `limit_scenes`. Clips remain in temp unless connected to `Save Video`. Video and audio are retained; subtitles are excluded so bitmap or other MP4-incompatible subtitle formats cannot break clipping. Disabling splitting skips connected video consumers without requiring the `Save Video` link to be removed. Scene clip previews release their previous videos at the start of each execution and show an empty state until a current result, including a cached result, arrives.
 
 Re-encoding is enabled by default to preserve scene boundaries. Stream copy is faster but can include frames beyond a cut until the next keyframe. Only representative frames are decoded into an `IMAGE` batch; clip outputs stay file-backed.
 
@@ -221,7 +221,7 @@ The original `images`, `scenes_json`, and `scene_count` outputs remain in slots 
 
 Templates support `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, and `{duration_frames}`. Numeric format specifiers work, for example `{duration_sec:.3f}`. Unknown placeholders are preserved. Use `{{` and `}}` for literal braces.
 
-This package formats metadata locally and does not call an LLM API. For a per-scene VLM, connect `images → Rebatch Images (batch_size=1) → VLM.images` and `per_scene_prompt_list → VLM.prompt`. The VLM must process each list item individually, preserving scene order. The integrated sample shows the rebatch connection; replace its image/text previews with your VLM. For a single LLM call over all scenes, use `all_scenes_text` instead.
+This package formats metadata locally and does not call an LLM API. For a per-scene VLM, connect `images → Rebatch Images (batch_size=1) → VLM.images` and `per_scene_prompt_list → VLM.prompt`. The VLM must process each list item individually, preserving scene order. If no scenes are produced, prompt-list consumers are skipped while JSON, scene_count, and the original image fallback remain available. The integrated sample shows the rebatch connection; replace its image/text previews with your VLM. For a single LLM call over all scenes, use `all_scenes_text` instead.
 
 ## Memory Behavior
 
