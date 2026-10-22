@@ -43,9 +43,18 @@ class VideoOpsTests(unittest.TestCase):
             FrameTimecode(Timecode(1002, Fraction(1, 1000)), 30.0),
         ]
         self.assertEqual(len({timecode.frame_num for timecode in timecodes}), 1)
-        images = torch.stack([torch.full((8, 8, 3), value, dtype=torch.uint8) for value in (0, 128, 255)])
         scenes = list(zip(timecodes, timecodes[1:] + [timecodes[-1] + 1]))
-        video = TensorVideoStream(images, 30.0, tuple(timecodes))
+        decoded = iter(zip(timecodes, (0, 128, 255)))
+        video = Mock()
+
+        def read():
+            item = next(decoded, None)
+            if item is None:
+                return False
+            video.position, value = item
+            return np.full((8, 8, 3), value, dtype=np.uint8)
+
+        video.read.side_effect = read
         with patch("utils.video_ops.open_video", return_value=video) as open_stream:
             frames = read_scene_frames("vfr.mp4", scenes, "end", backend="pyav")
 

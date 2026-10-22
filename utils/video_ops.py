@@ -1,5 +1,4 @@
 from __future__ import annotations
-from bisect import bisect_left
 from contextlib import contextmanager
 from dataclasses import dataclass
 from fractions import Fraction
@@ -38,26 +37,9 @@ class DetectorSettings:
 class TensorVideoStream(VideoStream):
     BACKEND_NAME = "tensor"
 
-    def __init__(
-        self, frames: torch.Tensor, fps: float,
-        timecodes: Tuple[FrameTimecode, ...] | None = None,
-        end_position: FrameTimecode | None = None,
-    ):
+    def __init__(self, frames: torch.Tensor, fps: float):
         self._frames = frames.detach()
-        if timecodes is not None:
-            if len(timecodes) != len(frames):
-                raise ValueError("Image batch and video_info timecodes must have the same frame count.")
-            if not all(isinstance(t, FrameTimecode) for t in timecodes):
-                raise ValueError("video_info contains invalid frame timecodes.")
-            if any(a > b for a, b in zip(timecodes, timecodes[1:])):
-                raise ValueError("video_info frame timecodes must be in presentation order.")
-        self._timecodes = timecodes
-        self._end_position = end_position
-        self._eof = False
-        self._frame_rate = (
-            timecodes[0].frame_rate if timecodes
-            else Fraction(float(fps)).limit_denominator(1_000_000)
-        )
+        self._frame_rate = Fraction(float(fps)).limit_denominator(1_000_000)
         self._next_frame = 0
 
         if (
@@ -95,8 +77,6 @@ class TensorVideoStream(VideoStream):
 
     @property
     def duration(self) -> FrameTimecode:
-        if self._timecodes:
-            return self._timecodes[-1] + 1
         return FrameTimecode(len(self._frames), self._frame_rate)
 
     @property
@@ -109,10 +89,6 @@ class TensorVideoStream(VideoStream):
 
     @property
     def position(self) -> FrameTimecode:
-        if self._eof and self._end_position is not None:
-            return self._end_position
-        if self._timecodes and self._next_frame:
-            return self._timecodes[self._next_frame - 1]
         return FrameTimecode(max(0, self._next_frame - 1), self._frame_rate)
 
     @property
@@ -139,7 +115,6 @@ class TensorVideoStream(VideoStream):
 
     def read(self, decode: bool = True) -> np.ndarray | bool:
         if self._next_frame >= len(self._frames):
-            self._eof = True
             return False
         index = self._next_frame
         self._next_frame += 1
@@ -147,21 +122,12 @@ class TensorVideoStream(VideoStream):
 
     def reset(self) -> None:
         self._next_frame = 0
-        self._eof = False
 
     def seek(self, target: Any) -> None:
-        frame = target if isinstance(target, int) else self.frame_index_at(
-            FrameTimecode(target, self._frame_rate)
-        )
+        frame = FrameTimecode(target, self._frame_rate).frame_num
         if frame < 0:
             raise ValueError("target must be greater than or equal to 0")
         self._next_frame = min(frame, len(self._frames))
-        self._eof = False
-
-    def frame_index_at(self, timecode: FrameTimecode) -> int:
-        if self._timecodes is not None:
-            return bisect_left(self._timecodes, timecode)
-        return timecode.frame_num
 
 
 def choose_detector(
