@@ -11,10 +11,14 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - Export one representative frame per scene as an `IMAGE` batch (choose start/middle/end)
 - Provide detailed scene metadata as JSON (frame numbers, timestamps, durations, etc.)
 - Optionally store representative frames as JPEG thumbnails
+- Optionally split detected scenes into temporary `VIDEO` clips for ComfyUI's built-in `Save Video`.
+
+- Preview a `VIDEO` or a list of clips without saving to the output directory.
 - Return one scene and its representative frame when no cuts are detected (`scene_count = 1`), for both `VIDEO` and Legacy VHS. Trimmed `VIDEO` inputs cover only the selected trim window.
 - Choose from `content`, `adaptive`, `threshold`, `hash`, and `histogram` detection methods.
 - Control the detection downscale factor while keeping representative images at their original resolution (unless `max_width` / `max_height` is set).
 - Keep PySceneDetect's default detector settings, or select `custom` to tune adaptive detection, content weights, and fade handling.
+- Emit a scene summary and one prompt per scene for existing LLM/VLM nodes.
 
 ## Requirements
 
@@ -23,6 +27,7 @@ Comfyui-SceneDetect adds PySceneDetect-based scene detection to ComfyUI. The rec
 - [PySceneDetect 0.7.2 or newer, below 0.8](https://github.com/Breakthrough/PySceneDetect) and OpenCV (installed through this package's dependency list)
 - PyAV (`av`) for the `pyav` backend; it is already included in standard ComfyUI installations with `VIDEO` support
 - [ComfyUI-VideoHelperSuite (VHS)](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) only for workflows using its video loader; the built-in `Load Video` path does not require VHS
+- `ffmpeg` available to PySceneDetect when `split_clips` is enabled (PATH or `imageio-ffmpeg`).
 
 ## Installation
 
@@ -53,6 +58,7 @@ Installing from ComfyUI Manager also installs the Python dependencies listed bel
 
 - Node: `PySceneDetect: Video → Scenes` (recommended, built-in `VIDEO` input)
 - Legacy node: `PySceneDetect: Scenes → Images (Legacy VHS)`
+- Preview node: `PySceneDetect: Preview Videos`
 - Category: `Video/PySceneDetect`
 
 Once installed, the node can be searched and placed directly inside ComfyUI.
@@ -89,6 +95,10 @@ Once installed, the node can be searched and placed directly inside ComfyUI.
   - `hash_threshold` (`FLOAT`, default `0.395`): Used only by `hash`, independently of `threshold`. Lower values detect more cuts.
   - `hist_threshold` (`FLOAT`, default `0.05`): Used only by `histogram`, independently of `threshold`. Lower values detect more cuts.
   - `downscale` (`INT`, default `0`): `0` uses PySceneDetect's automatic scaling; `1` detects at full resolution; `2` halves the width and height. This changes detection resolution, not representative image size. Larger factors reduce detection work but can miss fine changes.
+  - `split_clips` (`BOOLEAN`, default `false`): Split processed scenes into temporary MP4 files and return them on `scene_videos`.
+  - `split_reencode` (`BOOLEAN`, default `true`): Re-encode with libx264 for accurate cuts. Disable for stream copy; failed copy attempts retry with re-encoding.
+
+  - `prompt_template` (`STRING`, default empty): Template for each scene prompt. Empty uses the built-in shot description prompt.
   - `detector_settings` (`default|custom`, default `default`): `default` uses PySceneDetect's defaults and ignores the detailed settings. Select `custom` to show and adjust them. `hash_threshold`, `hist_threshold`, and `downscale` work in either mode.
   - `backend` (`opencv|pyav`, default `opencv`): Video decoding backend for both scene detection and representative image extraction. Backend availability, decoding, seeking, and fallback to OpenCV follow PySceneDetect's behavior. PyAV can improve decoding speed depending on the video and environment.
 
@@ -109,6 +119,10 @@ Detailed settings apply only to `custom`:
   - `images` (`IMAGE`): Representative frame batch (`(B,H,W,C)`).
   - `scenes_json` (`STRING`): JSON string with scene metadata (includes `video_info`).
   - `scene_count` (`INT`): Number of detected scenes.
+  - `scene_videos` (`VIDEO` list): One clip per processed scene, when splitting is enabled. Connect to ComfyUI's built-in `Save Video` to persist the clips. When splitting is disabled or there are no clips, downstream video consumers are skipped while images, JSON, and text outputs remain available.
+
+  - `all_scenes_text` (`STRING`): One summary covering all processed scenes, for a single text LLM call.
+  - `per_scene_prompt_list` (`STRING` list): One prompt per scene. For one image per prompt, pass `images` through the built-in `Rebatch Images` (`RebatchImages`) with `batch_size=1`, then connect that IMAGE list and this prompt list to the same per-item VLM node. Connecting the original image batch directly repeats the entire batch for every prompt.
 
 ### `PySceneDetect: Scenes → Images (Legacy VHS)`
 
@@ -117,7 +131,7 @@ Detailed settings apply only to `custom`:
 
 
 The legacy node keeps its original node ID, inputs, and outputs so existing workflows continue to load.
-The same detection methods and detector settings are available on both nodes. The `backend` option applies only to `Video → Scenes`; Legacy VHS receives already-decoded images. Legacy keeps its existing widget order.
+The same detection methods and detector settings are available on both nodes. The `backend` option applies only to `Video → Scenes`; Legacy VHS receives already-decoded images. Legacy keeps its existing widget order. Clip splitting is available only on the native `VIDEO` node.
 
 - Connect `IMAGE` output 1 from VHS `Load Video (Upload)` to `image`.
 - Connect `VHS_VIDEOINFO` output 4 to `video_info`.
@@ -138,6 +152,12 @@ Use the native `VIDEO` node for new workflows, including those that already use 
 `Create Video` assigns a constant frame rate to the supplied images; setting VHS `force_rate` is optional. This makes detection times consistent with the newly created video, but it does not restore the original VFR timestamps. VHS's regular loader also uses nominal-FPS timing for `force_rate`, so that option alone does not preserve the original VFR timeline. For original-source timing, connect the built-in `Load Video` directly to `Video → Scenes` instead.
 
 This bridge retains the full image batch and encodes it before detection. Prefer direct `Load Video` for lower memory use and to avoid re-encoding. Existing VHS → Legacy workflows can remain unchanged; migration is not required.
+
+### `PySceneDetect: Preview Videos`
+
+Connect a `VIDEO` from ComfyUI's built-in `Load Video`, or a list of `VIDEO` clips. Use the arrows or scene number to switch clips. The player follows each clip's aspect ratio and loads only the selected clip. Files outside ComfyUI's temp directory are copied into temp for playback; output files are not created.
+
+The node supports ComfyUI's V3 API and the legacy node interface. It can be used independently of the SceneDetect nodes.
 
 ## JSON Output Example (`scenes_json`)
 
@@ -183,10 +203,25 @@ Each entry in the `scenes` array provides the start/end frame indices, SMPTE-sty
 The samples use ComfyUI's built-in `Preview Image` and `Preview as Text` nodes:
 
 - Recommended: `workflow/pyscene_workflow.json`
+- Scene clips, local text outputs, and clip player: `workflow/pyscene_workflow_scene_outputs.json`
 - VHS images through native VIDEO (new workflows): `workflow/pyscene_workflow_vhs_video.json`
 - Existing Legacy VHS workflows: `workflow/pyscene_workflow_legacy_vhs.json`
 
 Existing workflows containing `PySceneDetectToImages` continue to load as the Legacy VHS node.
+
+## Scene Clips
+
+Enable `split_clips` on `PySceneDetect: Video → Scenes`. Each processed scene produces a `VIDEO` clip under ComfyUI's temp directory and gains a `clip_path` in `scenes_json`. Splitting respects the input trim window and `limit_scenes`. Clips remain in temp unless connected to `Save Video`. Video and audio are retained; subtitles are excluded so bitmap or other MP4-incompatible subtitle formats cannot break clipping. Disabling splitting skips connected video consumers without requiring the `Save Video` link to be removed. When a run is accepted, scene clip previews in its execution scope release their previous videos and show an empty state until a current result, including a cached result, arrives. Nested subgraphs are included; previews outside a partial execution keep their current display. Scoped previews reset again when their queued run starts, preventing earlier jobs from leaving stale results behind.
+
+Re-encoding is enabled by default to preserve scene boundaries. Stream copy is faster but can include frames beyond a cut until the next keyframe. Only representative frames are decoded into an `IMAGE` batch; clip outputs stay file-backed.
+
+## LLM/VLM Prompts
+
+The original `images`, `scenes_json`, and `scene_count` outputs remain in slots 1–3. Native VIDEO appends `scene_videos`, `all_scenes_text`, and `per_scene_prompt_list`; Legacy appends only the two text outputs. Existing widgets stay in order; `prompt_template` follows the existing settings. Scene limits apply to the summary and prompt list too.
+
+Templates support `{index}`, `{scene_count}`, `{start_time}`, `{end_time}`, `{duration_sec}`, `{start_frame}`, `{end_frame}`, and `{duration_frames}`. Numeric format specifiers work, for example `{duration_sec:.3f}`. Unknown placeholders are preserved. Use `{{` and `}}` for literal braces.
+
+This package formats metadata locally and does not call an LLM API. For a per-scene VLM, connect `images → Rebatch Images (batch_size=1) → VLM.images` and `per_scene_prompt_list → VLM.prompt`. The VLM must process each list item individually, preserving scene order. If no scenes are produced, prompt-list consumers are skipped while JSON, scene_count, and the original image fallback remain available. The integrated sample shows the rebatch connection; replace its image/text previews with your VLM. For a single LLM call over all scenes, use `all_scenes_text` instead.
 
 ## Memory Behavior
 
