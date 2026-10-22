@@ -75,6 +75,13 @@ function unloadVideo(video) {
   video.load();
 }
 
+function unloadPreviewVideos(node) {
+  for (const video of node._psdVideoPreviewContainer?.querySelectorAll("video") || []) {
+    unloadVideo(video);
+  }
+  node._psdPreviewLoadToken = (node._psdPreviewLoadToken || 0) + 1;
+}
+
 function clampSceneIndex(index, count) {
   if (count <= 0) {
     return 0;
@@ -392,7 +399,7 @@ function stopWidgetEvent(event) {
 
 function renderVideoPreviews(node, entries) {
   const container = ensureVideoPreviewWidget(node);
-  unloadVideo(node._psdPreviewVideo);
+  unloadPreviewVideos(node);
   container.replaceChildren();
   node._psdPreviewEntries = entries;
   node._psdPreviewIndex = 0;
@@ -401,14 +408,13 @@ function renderVideoPreviews(node, entries) {
   node._psdPreviewAspect = null;
   node._psdPreviewIndexInput = null;
   node._psdPreviewTotalLabel = null;
-  node._psdPreviewLoadToken = (node._psdPreviewLoadToken || 0) + 1;
   hideNativeFirstClipPreview(node);
 
   if (!entries.length) {
     node._psdVideoPreviewHeight = 28;
     const empty = document.createElement("div");
     empty.textContent =
-      "No videos to preview. Enable split_clips and connect scene_videos.";
+      "No videos to preview for this run.";
     empty.style.opacity = "0.65";
     empty.style.padding = "6px 4px";
     empty.style.fontSize = "12px";
@@ -488,6 +494,13 @@ function renderVideoPreviews(node, entries) {
 
 app.registerExtension({
   name: "Comfyui-SceneDetect.PreviewVideos",
+  setup() {
+    api.addEventListener("execution_start", () => {
+      for (const node of app.graph?.findNodesByType("PySceneDetectPreviewVideos") || []) {
+        renderVideoPreviews(node, []);
+      }
+    });
+  },
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== "PySceneDetectPreviewVideos") {
       return;
@@ -496,7 +509,7 @@ app.registerExtension({
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const result = onNodeCreated?.apply(this, arguments);
-      hideNativeFirstClipPreview(this);
+      renderVideoPreviews(this, []);
       return result;
     };
 
@@ -506,6 +519,12 @@ app.registerExtension({
       hideNativeFirstClipPreview(this);
       renderVideoPreviews(this, previewEntries(message));
       return result;
+    };
+
+    const onRemoved = nodeType.prototype.onRemoved;
+    nodeType.prototype.onRemoved = function () {
+      unloadPreviewVideos(this);
+      return onRemoved?.apply(this, arguments);
     };
 
     const onResize = nodeType.prototype.onResize;

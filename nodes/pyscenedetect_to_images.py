@@ -2,6 +2,10 @@ from __future__ import annotations
 from typing import Any, Dict
 import os, json, cv2, torch
 import numpy as np
+try:
+    from comfy_execution.graph_utils import ExecutionBlocker
+except ImportError:  # Older ComfyUI versions expose it from graph.
+    from comfy_execution.graph import ExecutionBlocker
 
 from ..utils.video_ops import (
     DetectorSettings,
@@ -210,7 +214,8 @@ class PySceneDetectToImages:
         )
 
         all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
-        return (batch, scenes_json, len(rows), all_scenes_text, per_scene_prompt_list)
+        prompt_output = per_scene_prompt_list or [ExecutionBlocker(None)]
+        return (batch, scenes_json, len(rows), all_scenes_text, prompt_output)
 
 
 NODE_CLASS_MAPPINGS["PySceneDetectToImages"] = PySceneDetectToImages
