@@ -48,7 +48,9 @@ legacy_node = (
 class VideoNodeTests(unittest.TestCase):
     def test_backend_is_appended_and_example_keeps_existing_widget_values(self):
         inputs = video_node.PySceneDetectVideo.INPUT_TYPES()
-        self.assertEqual(list(inputs["optional"])[-4:], ["backend", "split_clips", "split_reencode", "prompt_template"])
+        self.assertEqual(list(inputs["optional"])[-1:], ["backend"])
+        self.assertNotIn("split_clips", inputs["optional"])
+        self.assertNotIn("split_reencode", inputs["optional"])
         self.assertEqual(inputs["optional"]["backend"], (["opencv", "pyav"], {"default": "opencv"}))
         self.assertNotIn("backend", legacy_node.PySceneDetectToImages.INPUT_TYPES()["optional"])
 

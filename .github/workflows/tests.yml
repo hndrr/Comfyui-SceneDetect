@@ -52,7 +52,7 @@ jobs:
 
                   assert InputImpl.VideoFromFile is not None
                   assert 'pyav' in AVAILABLE_BACKENDS, 'PyAV tests must not be skipped in CI'
-                  assert is_ffmpeg_available(), 'Scene clip tests must not be skipped in CI'
+                  assert is_ffmpeg_available(), 'Subtitle fixture creation requires ffmpeg'
                   PY
             - name: Run Python tests
               run: python -m unittest discover -s tests -v

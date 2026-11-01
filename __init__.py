@@ -14,7 +14,8 @@ if ComfyExtension is not None:
     class SceneDetectExtension(ComfyExtension):
         async def get_node_list(self):
             from .nodes.pyscenedetect_preview import PySceneDetectPreviewVideos
-            return [PySceneDetectPreviewVideos]
+            from .nodes.pyscenedetect_scene_text import PySceneDetectSceneText
+            return [PySceneDetectPreviewVideos, PySceneDetectSceneText]
 
     async def comfy_entrypoint():
         return SceneDetectExtension()

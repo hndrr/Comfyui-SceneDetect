@@ -8,16 +8,15 @@ from unittest.mock import patch
 import av
 import imageio_ffmpeg
 import torch
-from scenedetect import FrameTimecode
 
 from test_preview_node import _load_preview_node
+from test_scene_text import text_node
 from test_video_node import InputImpl, legacy_node, video_node
 from video_fixtures import write_timing_video
-from utils.scene_clips import split_scene_clips
 
 
 class ReviewRegressionTests(unittest.TestCase):
-    def test_disabled_and_zero_scene_outputs_skip_video_consumers_only(self):
+    def test_video_output_is_available_by_default_and_empty_scenes_skip_consumers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             source = Path(tmpdir) / 'source.mp4'
             write_timing_video(source)
@@ -25,16 +24,15 @@ class ReviewRegressionTests(unittest.TestCase):
             result = node.run(InputImpl.VideoFromFile(str(source)), 'content', 10.0, 0.0, 1, True)
             self.assertEqual(result[0].shape[0], 2)
             self.assertEqual(result[2], 2)
-            self.assertEqual(len(result[5]), 2)
-            self.assertEqual(len(result[3]), 1)
-            self.assertIsInstance(result[3][0], video_node.ExecutionBlocker)
-            self.assertIsNone(result[3][0].message)
+            self.assertEqual(len(text_node.PySceneDetectSceneText.execute(result[1]).result[1]), 2)
+            self.assertEqual(len(result[3]), 2)
+            self.assertTrue(all(isinstance(clip, InputImpl.VideoFromFile) for clip in result[3]))
             with patch.object(video_node, 'detect_scenes', return_value=([], 30.0)):
-                empty = node.run(InputImpl.VideoFromFile(str(source)), 'content', 10.0, 0.0, 1, True, split_clips=True)
+                empty = node.run(InputImpl.VideoFromFile(str(source)), 'content', 10.0, 0.0, 1, True)
             self.assertEqual(empty[2], 0)
             self.assertIsInstance(empty[3][0], video_node.ExecutionBlocker)
 
-    def test_zero_scene_prompt_consumers_are_blocked_in_both_nodes(self):
+    def test_scene_text_blocks_zero_scene_prompt_consumers_from_both_detectors(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             source = Path(tmpdir) / 'source.mp4'
             write_timing_video(source)
@@ -53,10 +51,11 @@ class ReviewRegressionTests(unittest.TestCase):
                     self.assertEqual(result[0].sum().item(), 0)
                     self.assertEqual(json.loads(result[1])['scenes'], [])
                     self.assertEqual(result[2], 0)
-                    self.assertEqual(result[-2], '# Scenes (0)')
-                    self.assertEqual(len(result[-1]), 1)
-                    self.assertIsInstance(result[-1][0], module.ExecutionBlocker)
-                    self.assertIsNone(result[-1][0].message)
+                    text, prompts = text_node.PySceneDetectSceneText.execute(result[1]).result
+                    self.assertEqual(text, '')
+                    self.assertEqual(len(prompts), 1)
+                    self.assertIsInstance(prompts[0], text_node.ExecutionBlocker)
+                    self.assertIsNone(prompts[0].message)
 
     def test_trimmed_preview_contains_only_active_frames(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -104,27 +103,30 @@ class ReviewRegressionTests(unittest.TestCase):
             ], check=True, capture_output=True)
             with av.open(str(mkv)) as container:
                 self.assertEqual([s.type for s in container.streams], ['video', 'audio', 'subtitle'])
-            scenes = [(FrameTimecode(0, 30.0), FrameTimecode(60, 30.0))]
-            for reencode in (False, True):
-                with self.subTest(reencode=reencode):
-                    clips = split_scene_clips(str(mkv), scenes, str(root / str(reencode)), reencode=reencode)
-                    self.assertEqual(len(clips), 1)
-                    with av.open(clips[0]) as container:
-                        self.assertEqual([s.type for s in container.streams], ['video', 'audio'])
-                        self.assertEqual(len(list(container.decode(video=0))), 60)
-                    with av.open(clips[0]) as container:
-                        audio = list(container.decode(audio=0))
-                        self.assertGreater(sum(frame.samples for frame in audio), 0)
-                        self.assertGreater(max(abs(frame.to_ndarray()).max() for frame in audio), 0)
+            _, _, count, clips = video_node.PySceneDetectVideo().run(
+                InputImpl.VideoFromFile(str(mkv)), 'content', 10.0, 0.0, 1, True,
+            )
+            self.assertEqual(count, 2)
+            for index, clip in enumerate(clips):
+                saved = root / f'scene-{index}.mp4'
+                clip.save_to(str(saved))
+                with av.open(str(saved)) as container:
+                    self.assertEqual([s.type for s in container.streams], ['video', 'audio'])
+                    self.assertEqual(len(list(container.decode(video=0))), 30)
+                with av.open(str(saved)) as container:
+                    audio = list(container.decode(audio=0))
+                    self.assertGreater(sum(frame.samples for frame in audio), 0)
+                    self.assertGreater(max(abs(frame.to_ndarray()).max() for frame in audio), 0)
+                    self.assertAlmostEqual(float(audio[0].pts * audio[0].time_base), 0.0, delta=1/48000)
+                    self.assertAlmostEqual(float(audio[-1].pts * audio[-1].time_base) + audio[-1].samples / 48000, 1.0, delta=0.025)
 
     def test_example_rebatches_one_image_per_prompt_in_scene_order(self):
         from comfy_extras.nodes_rebatch import ImageRebatch
-        from utils.scene_text import format_scenes_for_llm
 
         batch = torch.stack([torch.full((4, 4, 3), value) for value in (0.0, 0.5, 1.0)])
         rows = [dict(index=i+1, start_frame=i, end_frame=i+1, duration_frames=1,
                      start_time=str(i), end_time=str(i+1), duration_sec=1.0) for i in range(3)]
-        _, prompts = format_scenes_for_llm(rows, 'Scene {index}')
+        _, prompts = text_node.PySceneDetectSceneText.execute(json.dumps({'scenes': rows}), 'Scene {index}').result
         images = ImageRebatch.execute([batch], [1]).result[0]
         self.assertEqual(len(images), len(prompts))
         self.assertEqual([item.shape[0] for item in images], [1, 1, 1])
@@ -138,6 +140,15 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(to_rebatch[1:5], [native['id'], 0, rebatch['id'], 0])
         to_preview = next(link for link in workflow['links'] if link[0] == rebatch['outputs'][0]['links'][0])
         self.assertEqual(to_preview[1:3], [rebatch['id'], 0])
+        scene_text = next(n for n in workflow['nodes'] if n['type'] == 'PySceneDetectSceneText')
+        to_text = next(link for link in workflow['links'] if link[0] == scene_text['inputs'][0]['link'])
+        self.assertEqual(to_text[1:5], [native['id'], 1, scene_text['id'], 0])
+        for slot, name in enumerate(('all_scene_prompts', 'per_scene_prompt_list')):
+            self.assertEqual(scene_text['outputs'][slot]['name'], name)
+            link = next(link for link in workflow['links'] if link[0] == scene_text['outputs'][slot]['links'][0])
+            self.assertEqual(link[1:3], [scene_text['id'], slot])
+        self.assertEqual(len(native['outputs']), 4)
+        self.assertEqual(len(native['widgets_values']), 27)
 
 
 if __name__ == '__main__':

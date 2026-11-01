@@ -1,8 +1,12 @@
 from __future__ import annotations
 from typing import Any, Dict
-import json, ntpath, os, uuid, cv2, torch
+import json, ntpath, os, cv2, torch
 import numpy as np
 import folder_paths
+try:
+    from comfy_api.latest import InputImpl
+except ImportError:
+    InputImpl = None
 try:
     from comfy_execution.graph_utils import ExecutionBlocker
 except ImportError:  # Older ComfyUI versions expose it from graph.
@@ -17,8 +21,6 @@ from ..utils.video_ops import (
     timecodes_to_dict,
     video_source_path,
 )
-from ..utils.scene_clips import load_video_from_file, split_scene_clips, stamp_scene_duration
-from ..utils.scene_text import format_scenes_for_llm
 from .detector_inputs import detector_input_types
 
 
@@ -81,15 +83,18 @@ class PySceneDetectVideo:
                 ),
                 **detector_input_types(),
                 "backend": (["opencv", "pyav"], {"default": "opencv"}),
-                "split_clips": ("BOOLEAN", {"default": False}),
-                "split_reencode": ("BOOLEAN", {"default": True}),
-                "prompt_template": ("STRING", {"default": "", "multiline": True}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT", "VIDEO", "STRING", "STRING")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count", "scene_videos", "all_scenes_text", "per_scene_prompt_list")
-    OUTPUT_IS_LIST = (False, False, False, True, False, True)
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "VIDEO")
+    RETURN_NAMES = ("images", "scenes_json", "scene_count", "scene_videos")
+    OUTPUT_IS_LIST = (False, False, False, True)
+    OUTPUT_TOOLTIPS = (
+        "One representative image per scene.",
+        "Scene timestamps, frame ranges, and video metadata as JSON.",
+        "Number of processed scenes.",
+        "One standard VIDEO per scene. Connect to Save Video or Preview Videos; files are created by those nodes.",
+    )
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -112,11 +117,10 @@ class PySceneDetectVideo:
         downscale: int = 0,
         detector_settings: str = "default",
         backend: str = "opencv",
-        split_clips: bool = False,
-        split_reencode: bool = True,
-        prompt_template: str = "",
         **detector_options,
     ):
+        if InputImpl is None:
+            raise RuntimeError("Update ComfyUI to use the native VIDEO node.")
         fps = float(video.get_frame_rate())
         if fps <= 0:
             raise ValueError("video does not contain a valid FPS value.")
@@ -127,8 +131,8 @@ class PySceneDetectVideo:
         start_time, trim_duration = video.get_active_trim_window()
         settings = DetectorSettings(**detector_options) if detector_settings == "custom" else None
 
-        scene_videos = []
-        with video_source_path(video.get_stream_source()) as video_path:
+        source = video.get_stream_source()
+        with video_source_path(source) as video_path:
             scene_list, fps_detected = detect_scenes(
                 video_path,
                 method,
@@ -153,19 +157,14 @@ class PySceneDetectVideo:
             rows = timecodes_to_dict(scene_list, fps)
             frames = read_scene_frames(video_path, scene_list, representative, backend=backend)
 
-            if split_clips and scene_list:
-                clip_dir = os.path.join(
-                    folder_paths.get_temp_directory(), "scenedetect_clips", uuid.uuid4().hex,
-                )
-                clip_paths = split_scene_clips(
-                    video_path, scene_list, clip_dir,
-                    video_name=video_path, reencode=split_reencode,
-                )
-                for row, clip_path in zip(rows, clip_paths):
-                    row["clip_path"] = clip_path
-                    scene_videos.append(
-                        stamp_scene_duration(load_video_from_file(clip_path), row["duration_sec"])
-                    )
+        # Keep the original source alive, including BytesIO, rather than the
+        # temporary path used for detection. Scene timecodes are source-relative.
+        scene_videos = [
+            InputImpl.VideoFromFile(
+                source, start_time=start.seconds, duration=end.seconds - start.seconds,
+            )
+            for start, end in scene_list
+        ]
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
@@ -236,11 +235,9 @@ class PySceneDetectVideo:
             indent=2,
         )
 
-        all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
         # An empty list crashes non-list consumers such as Save Video.
         video_output = scene_videos or [ExecutionBlocker(None)]
-        prompt_output = per_scene_prompt_list or [ExecutionBlocker(None)]
-        return (batch, scenes_json, len(rows), video_output, all_scenes_text, prompt_output)
+        return (batch, scenes_json, len(rows), video_output)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}

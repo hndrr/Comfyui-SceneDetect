@@ -51,11 +51,9 @@ def _write_dummy_video(path: Path) -> None:
 
 
 class FakeVideo:
-    def __init__(self, path: Path | None, save_to_impl=None, duration_sec=None):
+    def __init__(self, path: Path | None, save_to_impl=None):
         self._path = str(path) if path is not None else None
         self._save_to_impl = save_to_impl
-        if duration_sec is not None:
-            self.scene_duration_sec = duration_sec
 
     def get_stream_source(self):
         return self._path
@@ -154,23 +152,6 @@ class PreviewNodeTests(unittest.TestCase):
             )
             self.assertEqual(list(output_root.rglob("*")), [])
 
-    def test_preview_includes_detected_scene_duration(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_root = Path(tmpdir) / "output"
-            temp_root = Path(tmpdir) / "temp"
-            clip_dir = temp_root / "scenedetect_clips"
-            output_root.mkdir()
-            clip_dir.mkdir(parents=True)
-            clip = clip_dir / "scene_001.mp4"
-            _write_dummy_video(clip)
-
-            preview_node = _load_preview_node(str(output_root), str(temp_root))
-            payload = preview_node.PySceneDetectPreviewVideos().preview(
-                FakeVideo(clip, duration_sec=1.25)
-            )
-
-            self.assertEqual(payload["ui"]["scene_previews"][0]["duration_sec"], 1.25)
-
     def test_save_to_fallback_writes_only_to_temp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_root = Path(tmpdir) / "output"
@@ -246,7 +227,7 @@ class PreviewNodeTests(unittest.TestCase):
             inputs = cls.INPUT_TYPES()
             self.assertEqual(list(inputs["required"]), ["video"])
 
-    def test_v3_entrypoint_registers_preview_videos(self):
+    def test_package_registers_preview_and_scene_text(self):
         try:
             from comfy_api.latest import io
         except ImportError:
@@ -269,10 +250,13 @@ class PreviewNodeTests(unittest.TestCase):
         spec.loader.exec_module(module)
         extension = asyncio.run(module.comfy_entrypoint())
         nodes = asyncio.run(extension.get_node_list())
-        self.assertEqual([node.__name__ for node in nodes], ["PySceneDetectPreviewVideos"])
-        self.assertTrue(issubclass(nodes[0], io.ComfyNode))
+        self.assertEqual([node.__name__ for node in nodes], ["PySceneDetectPreviewVideos", "PySceneDetectSceneText"])
+        for node in nodes:
+            self.assertTrue(issubclass(node, io.ComfyNode))
+            self.assertIs(module.NODE_CLASS_MAPPINGS[node.__name__], node)
+        self.assertEqual(module.NODE_DISPLAY_NAME_MAPPINGS["PySceneDetectSceneText"], "PySceneDetect: Scene Text")
         self.assertEqual(set(module.NODE_CLASS_MAPPINGS), {
-            "PySceneDetectVideo", "PySceneDetectToImages", "PySceneDetectPreviewVideos",
+            "PySceneDetectVideo", "PySceneDetectToImages", "PySceneDetectPreviewVideos", "PySceneDetectSceneText",
         })
 
     def test_empty_list_returns_empty_preview(self):

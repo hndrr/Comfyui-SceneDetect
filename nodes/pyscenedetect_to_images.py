@@ -2,10 +2,6 @@ from __future__ import annotations
 from typing import Any, Dict
 import os, json, cv2, torch
 import numpy as np
-try:
-    from comfy_execution.graph_utils import ExecutionBlocker
-except ImportError:  # Older ComfyUI versions expose it from graph.
-    from comfy_execution.graph import ExecutionBlocker
 
 from ..utils.video_ops import (
     DetectorSettings,
@@ -16,7 +12,6 @@ from ..utils.video_ops import (
     resize_keep_ar,
     frame_to_tensor_bhwc,
 )
-from ..utils.scene_text import format_scenes_for_llm
 from .detector_inputs import detector_input_types
 
 
@@ -84,13 +79,12 @@ class PySceneDetectToImages:
                      "tooltip": "Detection only: 0 = automatic, 1 = full resolution, 2 = half width/height. Representative images keep their original resolution."},
                 ),
                 **detector_input_types(),
-                "prompt_template": ("STRING", {"default": "", "multiline": True}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING", "STRING")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count", "all_scenes_text", "per_scene_prompt_list")
-    OUTPUT_IS_LIST = (False, False, False, False, True)
+    RETURN_TYPES = ("IMAGE", "STRING", "INT")
+    RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    OUTPUT_IS_LIST = (False, False, False)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -113,7 +107,6 @@ class PySceneDetectToImages:
         hist_threshold: float = 0.05,
         downscale: int = 0,
         detector_settings: str = "default",
-        prompt_template: str = "",
         **detector_options,
     ):
         if isinstance(image, dict) and "samples" in image:
@@ -213,9 +206,7 @@ class PySceneDetectToImages:
             indent=2,
         )
 
-        all_scenes_text, per_scene_prompt_list = format_scenes_for_llm(rows, prompt_template)
-        prompt_output = per_scene_prompt_list or [ExecutionBlocker(None)]
-        return (batch, scenes_json, len(rows), all_scenes_text, prompt_output)
+        return (batch, scenes_json, len(rows))
 
 
 NODE_CLASS_MAPPINGS["PySceneDetectToImages"] = PySceneDetectToImages
