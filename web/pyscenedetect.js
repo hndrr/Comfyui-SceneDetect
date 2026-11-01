@@ -232,62 +232,6 @@ async function waitForStartFrame(video) {
   await waitForPresentedFrame(video);
 }
 
-function playbackLimitSec(video, sceneDuration) {
-  const scene = Number(sceneDuration);
-  const file = video.duration;
-  const limits = [];
-  if (Number.isFinite(scene) && scene > 0) {
-    limits.push(scene);
-  }
-  if (Number.isFinite(file) && file > 0) {
-    limits.push(file);
-  }
-  if (!limits.length) {
-    return null;
-  }
-  return Math.min(...limits);
-}
-
-function attachLoopFromStart(video, sceneDuration, stage) {
-  let restarting = false;
-  const restart = async (time) => {
-    const limit = playbackLimitSec(video, sceneDuration);
-    if (limit == null || limit >= video.duration || restarting || !video.isConnected) {
-      return;
-    }
-    if (time < limit - 1 / 120) {
-      return;
-    }
-    restarting = true;
-    coverFromVideo(stage, video);
-    video.pause();
-    try {
-      video.currentTime = 0;
-      await waitForEventOrTimeout(video, "seeked", 400);
-    } catch {
-      // Keep the cover until the next successful start frame.
-    }
-    hideCover(stage);
-    video.play().catch(() => {});
-    restarting = false;
-  };
-  video.addEventListener("ended", () => restart(video.duration));
-  const onFrame = (_now, meta) => {
-    if (!video.isConnected) {
-      return;
-    }
-    restart(meta?.mediaTime ?? video.currentTime);
-    if (typeof video.requestVideoFrameCallback === "function") {
-      video.requestVideoFrameCallback(onFrame);
-    }
-  };
-  if (typeof video.requestVideoFrameCallback === "function") {
-    video.requestVideoFrameCallback(onFrame);
-  } else {
-    video.addEventListener("timeupdate", () => restart(video.currentTime));
-  }
-}
-
 function discardPendingVideos(stage, keep) {
   for (const child of [...stage.children]) {
     if (child === keep || child.dataset.psdCover === "1") {
@@ -331,7 +275,6 @@ function showPreviewScene(node, index) {
 
   const incoming = document.createElement("video");
   stylePreviewVideo(incoming);
-  attachLoopFromStart(incoming, entries[next].duration_sec, stage);
   incoming.style.position = "absolute";
   incoming.style.left = "-9999px";
   incoming.style.top = "0";

@@ -18,7 +18,6 @@ def format_scenes_for_llm(
     prompt_template = (template or "").strip() or DEFAULT_SCENE_PROMPT
     scene_count = len(rows)
     prompts: List[str] = []
-    lines = [f"# Scenes ({scene_count})"]
     for row in rows:
         values = {
             "index": row["index"],
@@ -35,8 +34,4 @@ def format_scenes_for_llm(
             prompts.append(prompt_template.format_map(_TemplateMap(values)))
         except (ValueError, IndexError, KeyError, AttributeError, TypeError):
             prompts.append(prompt_template)
-        lines.append(
-            f"{row['index']}. {row['start_time']} – {row['end_time']} | "
-            f"{float(row['duration_sec']):.3f}s | frames {row['start_frame']}-{row['end_frame']}"
-        )
-    return "\n".join(lines), prompts
+    return "\n".join(prompts), prompts

@@ -1,8 +1,8 @@
 {
   "id": "ab990708-d467-4811-9acf-deecc450db5d",
-  "revision": 0,
-  "last_node_id": 32,
-  "last_link_id": 27,
+  "revision": 2,
+  "last_node_id": 33,
+  "last_link_id": 28,
   "nodes": [
     {
       "id": 20,
@@ -162,7 +162,7 @@
       ],
       "size": [
         340,
-        630
+        560
       ],
       "flags": {},
       "order": 1,
@@ -187,7 +187,8 @@
           "name": "scenes_json",
           "type": "STRING",
           "links": [
-            22
+            22,
+            28
           ],
           "slot_index": 1
         },
@@ -206,23 +207,6 @@
             24
           ],
           "slot_index": 3,
-          "shape": 6
-        },
-        {
-          "name": "all_scenes_text",
-          "type": "STRING",
-          "links": [
-            25
-          ],
-          "slot_index": 4
-        },
-        {
-          "name": "per_scene_prompt_list",
-          "type": "STRING",
-          "links": [
-            26
-          ],
-          "slot_index": 5,
           "shape": 6
         }
       ],
@@ -257,10 +241,7 @@
         0.0,
         false,
         "floor",
-        "pyav",
-        true,
-        true,
-        ""
+        "pyav"
       ]
     },
     {
@@ -296,11 +277,11 @@
       "type": "PreviewAny",
       "pos": [
         740,
-        430
+        700
       ],
       "size": [
         320,
-        350
+        240
       ],
       "flags": {},
       "order": 29,
@@ -327,7 +308,7 @@
         null,
         null
       ],
-      "title": "All scenes summary"
+      "title": "All scene prompts"
     },
     {
       "id": 30,
@@ -420,20 +401,68 @@
       "type": "Note",
       "pos": [
         740,
-        -460
+        -500
       ],
       "size": [
         640,
-        190
+        240
       ],
       "flags": {},
       "order": 0,
       "mode": 0,
       "properties": {},
       "widgets_values": [
-        "Per-scene VLM: connect Rebatch Images.IMAGE (batch_size=1) and SceneDetect.per_scene_prompt_list to the same VLM node that processes each list item individually. Both lists follow scene order. Do not connect the original IMAGE batch directly: that sends all scenes with every prompt. This example previews the lists without calling an external model."
+        "Connect SceneDetect.scenes_json to Scene Text to apply a prompt template to each scene. all_scene_prompts combines the formatted prompts; per_scene_prompt_list returns them individually. To describe each representative image with a VLM, connect Rebatch Images.IMAGE (batch_size=1) and Scene Text.per_scene_prompt_list to the same VLM node that processes each list item individually. Both lists follow scene order. This example only previews images and text; it runs no AI model. SceneDetect always outputs standard VIDEO trim windows. Connect scene_videos to the built-in Save Video to save one file per scene; this package’s Preview Videos renders temporary previews."
       ],
       "title": "Pair each representative image with its scene prompt"
+    },
+    {
+      "id": 33,
+      "type": "PySceneDetectSceneText",
+      "pos": [
+        740,
+        430
+      ],
+      "size": [
+        320,
+        210
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "scenes_json",
+          "type": "STRING",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "all_scene_prompts",
+          "type": "STRING",
+          "links": [
+            25
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "per_scene_prompt_list",
+          "type": "STRING",
+          "links": [
+            26
+          ],
+          "slot_index": 1,
+          "shape": 6
+        }
+      ],
+      "properties": {
+        "aux_id": "hndrr/Comfyui-SceneDetect",
+        "Node name for S&R": "PySceneDetectSceneText"
+      },
+      "widgets_values": [
+        "Scene {index}/{scene_count}: {start_time}–{end_time} ({duration_sec}s). Describe this shot."
+      ]
     }
   ],
   "links": [
@@ -479,16 +508,16 @@
     ],
     [
       25,
-      27,
-      4,
+      33,
+      0,
       29,
       0,
       "STRING"
     ],
     [
       26,
-      27,
-      5,
+      33,
+      1,
       30,
       0,
       "STRING"
@@ -500,6 +529,14 @@
       31,
       0,
       "IMAGE"
+    ],
+    [
+      28,
+      27,
+      1,
+      33,
+      0,
+      "STRING"
     ]
   ],
   "groups": [],

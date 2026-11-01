@@ -64,13 +64,6 @@ def preview_entry_for_path(path: str) -> Dict[str, Any]:
     }
 
 
-def _scene_duration_sec(video: Any) -> float | None:
-    value = getattr(video, "scene_duration_sec", None)
-    if isinstance(value, (int, float)) and value > 0:
-        return float(value)
-    return None
-
-
 def preview_entry_for_video(video: Any) -> Dict[str, Any]:
     path = _file_path_from_video(video)
     if path is not None:
@@ -78,7 +71,7 @@ def preview_entry_for_video(video: Any) -> Dict[str, Any]:
     else:
         save_to = getattr(video, "save_to", None)
         if not callable(save_to):
-            raise ValueError("Preview Videos requires a file-backed VIDEO input.")
+            raise ValueError("Preview Videos requires a VIDEO input.")
 
         dest_dir = os.path.join(folder_paths.get_temp_directory(), "scenedetect_preview")
         os.makedirs(dest_dir, exist_ok=True)
@@ -86,15 +79,12 @@ def preview_entry_for_video(video: Any) -> Dict[str, Any]:
         save_to(dest_path)
         entry = preview_entry_for_path(dest_path)
 
-    duration = _scene_duration_sec(video)
-    if duration is not None:
-        entry["duration_sec"] = duration
     return entry
 
 
 _PREVIEW_TOOLTIP = (
     "Connect a VIDEO or a list of VIDEO clips. "
-    "Files stay in temp; nothing is written to output."
+    "Trimmed VIDEO inputs are rendered to temp; nothing is written to output."
 )
 _PREVIEW_DESCRIPTION = (
     "Preview VIDEO clips without saving them to the output directory. "

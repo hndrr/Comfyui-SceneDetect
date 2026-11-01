@@ -26,11 +26,8 @@ test("portrait and landscape clips retain their aspect ratio", () => {
     }
 });
 
-test("stream-copy playback stops at the detected scene boundary", () => {
+test("scene navigation wraps at the ends of the list", () => {
     const preview = loadPreview();
-    assert.equal(preview.playbackLimitSec({ duration: 3.0 }, 2.0), 2.0);
-    assert.equal(preview.playbackLimitSec({ duration: 1.0 }, 2.0), 1.0);
-    assert.equal(preview.playbackLimitSec({ duration: 3.0 }), 3.0);
     assert.equal(preview.clampSceneIndex(-1, 3), 2);
     assert.equal(preview.clampSceneIndex(3, 3), 0);
 });
@@ -116,30 +113,7 @@ test("rerunning the node cannot reveal a stale pending clip", async () => {
 });
 
 
-test("a truncated stream-copy clip restarts without waiting for a paused frame callback", async () => {
-    const events = new Map();
-    let plays = 0;
-    const video = {
-        duration: 3, currentTime: 3, isConnected: true,
-        addEventListener(name, handler) { events.set(name, handler); },
-        requestVideoFrameCallback() {}, pause() {},
-        play() { plays++; return Promise.resolve(); },
-    };
-    const preview = loadPreview();
-    preview.coverFromVideo = () => {};
-    preview.hideCover = () => {};
-    preview.waitForEventOrTimeout = () => Promise.resolve();
-    preview.waitForPresentedFrame = () => new Promise(() => {});
-    preview.attachLoopFromStart(video, 2, {});
-    assert.equal(typeof events.get("ended"), "function");
-    events.get("ended")();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(video.currentTime, 0);
-    assert.equal(plays, 1);
-});
-
-
-test("whole-file previews use native media looping for one-frame clips", () => {
+test("scene previews use native media looping for one-frame clips", () => {
     const preview = loadPreview();
     const video = {style: {}};
     preview.stylePreviewVideo(video);
