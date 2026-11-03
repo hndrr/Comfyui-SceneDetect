@@ -25,7 +25,7 @@ node --test tests/*.mjs
 
 ## セキュリティチェック
 
-- **CodeQL**: GitHub の Default setup で Python・JavaScript・GitHub Actions を解析します。クエリは `extended`、脅威モデルは `remote_and_local` とし、ローカルファイルなどを入力とする問題も対象にします。PR・`master` への push・週次の解析結果は [Code scanning](https://github.com/hndrr/Comfyui-SceneDetect/security/code-scanning) で確認します。この設定はリポジトリの Settings で管理します。
+- **CodeQL**: GitHub の Default setup で Python・JavaScript・GitHub Actions を解析し、クエリは `extended` を使います。追加の脅威モデル `remote_and_local` は [Java/Kotlin・C# のみが対象](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/edit-default-setup#including-local-sources-of-tainted-data-in-default-setup)です。PR・`master` への push・週次の解析結果は [Code scanning](https://github.com/hndrr/Comfyui-SceneDetect/security/code-scanning) で確認します。この設定はリポジトリの Settings で管理します。
 - **Dependabot**: [dependabot.yml](.github/dependabot.yml) で本体と `.github/` の Python 依存を対象にし、脆弱性が見つかった場合の修正 PR を作ります。Python の通常のバージョン更新 PR は作りません。GitHub Actions の更新は毎週月曜 09:00（日本時間）に確認し、まとめて PR を作ります。修正 PR は CI と変更内容を確認してマージします。
 - **Dependency review**: [dependency-review.yml](.github/workflows/dependency-review.yml) が各 PR の依存変更を確認します。実行時・開発用・用途不明の依存に `moderate` 以上の既知の脆弱性を追加するとチェックが失敗します。結果は Actions のログとサマリーに表示します。
 - **Secret scanning / Push protection**: GitHub の Settings で有効にし、対応するトークンや秘密鍵の検出と push 時の流出防止を行います。検出結果は [Secret scanning](https://github.com/hndrr/Comfyui-SceneDetect/security/secret-scanning) で確認します。
