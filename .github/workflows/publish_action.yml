@@ -43,7 +43,7 @@ jobs:
             release_notes: ${{ steps.notes.outputs.body }}
         steps:
             - name: Check out release commit
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   ref: ${{ inputs.release_sha || github.sha }}
                   fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
                   git merge-base --is-ancestor HEAD origin/master
                   echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
             - name: Prepare shared release notes
@@ -82,7 +82,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Check out prepared release
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   ref: ${{ needs.prepare-release.outputs.release_sha }}
                   persist-credentials: false
@@ -107,12 +107,12 @@ jobs:
             contents: write
         steps:
             - name: Check out published commit
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   ref: ${{ needs.prepare-release.outputs.release_sha }}
                   persist-credentials: false
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
             - name: Create release with shared notes
@@ -133,13 +133,13 @@ jobs:
             contents: write
         steps:
             - name: Check out release history
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   ref: ${{ github.sha }}
                   fetch-depth: 0
                   persist-credentials: false
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
             - name: Create missing releases and sync existing notes
