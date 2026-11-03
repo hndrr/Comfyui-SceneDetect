@@ -1,5 +1,7 @@
 # Tested with Python 3.12 and ComfyUI v0.41.0.
 # The public torch version also matches the Linux +cpu wheel.
+-c pyscenedetect/requirements.txt
+
 av==19.0.2
 click==8.5.0
 comfy-aimdo==0.5.6
@@ -17,7 +19,6 @@ packaging==26.3
 pillow==13.0.0
 platformdirs==4.13.5
 safetensors==0.8.0
-scenedetect-headless==0.7.2
 scipy==1.18.1
 setuptools==78.1.0
 sympy==1.14.0
