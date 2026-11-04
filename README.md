@@ -37,7 +37,7 @@ Installing from ComfyUI Manager also installs the Python dependencies listed bel
    ```
 
    The `requirements.txt` file includes:
-   - `scenedetect-headless>=0.7.2,<0.8`
+   - `scenedetect-headless>=0.7.2`
    - `opencv-python-headless>=4.9`
    - `numpy`
 
