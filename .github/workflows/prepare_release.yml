@@ -34,18 +34,18 @@ jobs:
             body: ${{ steps.notes.outputs.body }}
         steps:
             - name: Check out release changes
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   ref: ${{ github.sha }}
                   fetch-depth: 0
                   persist-credentials: false
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
             - name: Set up Node for Copilot CLI
               if: inputs.release_notes == ''
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v7
               with:
                   node-version: '22'
             - name: Install Copilot CLI
@@ -70,12 +70,12 @@ jobs:
             head_sha: ${{ steps.prepare.outputs.head_sha }}
         steps:
             - name: Check out release base
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
               with:
                   ref: ${{ github.sha }}
                   persist-credentials: false
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
             - name: Create release preparation PR
@@ -102,11 +102,11 @@ jobs:
             checks: write
             contents: read
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
               with:
                   ref: ${{ github.sha }}
                   persist-credentials: false
-            - uses: actions/setup-python@v5
+            - uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
             - name: Show validation result on release PR
