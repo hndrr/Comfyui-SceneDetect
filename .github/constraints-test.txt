@@ -20,7 +20,7 @@ pillow==13.0.0
 platformdirs==4.13.5
 safetensors==0.8.0
 scipy==1.18.1
-setuptools==78.1.0
+setuptools==84.1.0
 sympy==1.14.0
 torch==2.14.1
 tqdm==4.70.1
