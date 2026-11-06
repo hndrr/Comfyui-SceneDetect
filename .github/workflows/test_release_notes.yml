@@ -37,10 +37,16 @@ jobs:
                   fetch-depth: 2
                   persist-credentials: false
             - name: Verify release PR revision
-              if: inputs.expected_head != ''
+              if: inputs.ref != ''
+              shell: bash
               env:
                   EXPECTED_HEAD: ${{ inputs.expected_head }}
-              run: test "$(git rev-parse HEAD^2)" = "$EXPECTED_HEAD"
+              run: |
+                  if [[ -z "$EXPECTED_HEAD" ]]; then
+                      echo "::error::expected_head is required whenever ref is supplied."
+                      exit 1
+                  fi
+                  test "$(git rev-parse HEAD^2)" = "$EXPECTED_HEAD"
             - uses: actions/setup-python@v7
               with:
                   python-version: '3.12'
