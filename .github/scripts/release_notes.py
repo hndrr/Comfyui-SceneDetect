@@ -12,6 +12,8 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 import uuid
 
+GITHUB_API = "https://api.github.com"
+
 
 class API:
     def __init__(self, base_url, token, header="Authorization"):
@@ -43,6 +45,12 @@ def git(*arguments):
 def validate_commit_sha(sha):
     if len(sha) not in (40, 64) or not re.fullmatch(r"[0-9a-f]+", sha) or not sha.strip("0"):
         raise ValueError("A full SHA-1 or SHA-256 commit ID is required")
+
+
+def validate_repository(repository):
+    if not re.fullmatch(r"[0-9A-Za-z-]{1,39}/[0-9A-Za-z._-]{1,100}", repository):
+        raise ValueError(f"Unsupported repository: {repository}")
+    return repository
 
 
 def validate_release(version, sha):
@@ -186,8 +194,8 @@ def main():
     parser.add_argument("mode", choices=("prepare", "create", "backfill"))
     arguments = parser.parse_args()
     config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    repository = os.environ["GITHUB_REPOSITORY"]
-    github = API(os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GH_TOKEN"])
+    repository = validate_repository(os.environ["GITHUB_REPOSITORY"])
+    github = API(GITHUB_API, os.environ["GH_TOKEN"])
     if arguments.mode == "prepare":
         version = config["project"]["version"]
         sha = git("rev-parse", "HEAD")
