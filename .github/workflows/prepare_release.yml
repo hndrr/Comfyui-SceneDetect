@@ -119,11 +119,11 @@ jobs:
                   import os
                   import sys
                   sys.path.insert(0, '.github/scripts')
-                  from release_notes import API
+                  from release_notes import API, GITHUB_API, validate_repository
                   result = os.environ['TEST_RESULT']
                   conclusion = result if result in ('success', 'cancelled') else 'failure'
-                  github = API(os.environ['GITHUB_API_URL'], os.environ['GH_TOKEN'])
-                  repository = os.environ['GITHUB_REPOSITORY']
+                  github = API(GITHUB_API, os.environ['GH_TOKEN'])
+                  repository = validate_repository(os.environ['GITHUB_REPOSITORY'])
                   url = f"{os.environ['GITHUB_SERVER_URL']}/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
                   github('POST', f'/repos/{repository}/check-runs', {
                       'name': 'Release preparation validation',
