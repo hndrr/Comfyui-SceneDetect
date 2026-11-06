@@ -15,7 +15,7 @@ on:
             expected_head:
                 description: Release PR head that the merge revision must include
                 type: string
-                required: false
+                required: true
     pull_request:
         paths:
             - '.github/scripts/**'
