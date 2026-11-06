@@ -8,7 +8,7 @@ import re
 import tomllib
 from urllib.parse import quote
 
-from release_notes import API, git, validate_release, write_outputs
+from release_notes import API, GITHUB_API, git, validate_release, validate_repository, write_outputs
 
 
 def set_project_version(source, current, version):
@@ -72,16 +72,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bump", choices=("patch", "minor", "major"), default="patch")
     arguments = parser.parse_args()
-    github = API(os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GH_TOKEN"])
+    github = API(GITHUB_API, os.environ["GH_TOKEN"])
+    repository = validate_repository(os.environ["GITHUB_REPOSITORY"])
     url = prepare_pull_request(
-        github, os.environ["GITHUB_REPOSITORY"], git("rev-parse", "HEAD"),
+        github, repository, git("rev-parse", "HEAD"),
         Path("pyproject.toml").read_text(encoding="utf-8"),
         Path(".github/release-history.json").read_text(encoding="utf-8"),
         arguments.bump, os.environ["RELEASE_NOTES_INPUT"],
     )
     print(url)
     number = url.rsplit("/", 1)[1]
-    pull = github("GET", f"/repos/{os.environ['GITHUB_REPOSITORY']}/pulls/{number}")
+    pull = github("GET", f"/repos/{repository}/pulls/{number}")
     if os.environ.get("GITHUB_OUTPUT"):
         write_outputs(os.environ["GITHUB_OUTPUT"], {
             "pull_number": str(pull["number"]), "head_sha": pull["head"]["sha"],
