@@ -84,6 +84,7 @@ class PySceneDetectToImages:
 
     RETURN_TYPES = ("IMAGE", "STRING", "INT")
     RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    OUTPUT_IS_LIST = (False, False, False)
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
