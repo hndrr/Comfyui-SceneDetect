@@ -48,7 +48,7 @@ def validate_commit_sha(sha):
 
 
 def validate_repository(repository):
-    if not re.fullmatch(r"[0-9A-Za-z._-]+/[0-9A-Za-z._-]+", repository):
+    if not re.fullmatch(r"[0-9A-Za-z-]{1,39}/[0-9A-Za-z._-]{1,100}", repository):
         raise ValueError(f"Unsupported repository: {repository}")
     return repository
 
