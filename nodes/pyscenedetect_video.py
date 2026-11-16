@@ -3,6 +3,14 @@ from typing import Any, Dict
 import json, ntpath, os, cv2, torch
 import numpy as np
 import folder_paths
+try:
+    from comfy_api.latest import InputImpl
+except ImportError:
+    InputImpl = None
+try:
+    from comfy_execution.graph_utils import ExecutionBlocker
+except ImportError:  # Older ComfyUI versions expose it from graph.
+    from comfy_execution.graph import ExecutionBlocker
 
 from ..utils.video_ops import (
     DetectorSettings,
@@ -78,8 +86,15 @@ class PySceneDetectVideo:
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT")
-    RETURN_NAMES = ("images", "scenes_json", "scene_count")
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "VIDEO")
+    RETURN_NAMES = ("images", "scenes_json", "scene_count", "scene_videos")
+    OUTPUT_IS_LIST = (False, False, False, True)
+    OUTPUT_TOOLTIPS = (
+        "One representative image per scene.",
+        "Scene timestamps, frame ranges, and video metadata as JSON.",
+        "Number of processed scenes.",
+        "One standard VIDEO per scene. Connect to Save Video or Preview Videos; files are created by those nodes.",
+    )
     FUNCTION = "run"
     CATEGORY = "Video/PySceneDetect"
 
@@ -104,6 +119,8 @@ class PySceneDetectVideo:
         backend: str = "opencv",
         **detector_options,
     ):
+        if InputImpl is None:
+            raise RuntimeError("Update ComfyUI to use the native VIDEO node.")
         fps = float(video.get_frame_rate())
         if fps <= 0:
             raise ValueError("video does not contain a valid FPS value.")
@@ -114,7 +131,8 @@ class PySceneDetectVideo:
         start_time, trim_duration = video.get_active_trim_window()
         settings = DetectorSettings(**detector_options) if detector_settings == "custom" else None
 
-        with video_source_path(video.get_stream_source()) as video_path:
+        source = video.get_stream_source()
+        with video_source_path(source) as video_path:
             scene_list, fps_detected = detect_scenes(
                 video_path,
                 method,
@@ -138,6 +156,15 @@ class PySceneDetectVideo:
 
             rows = timecodes_to_dict(scene_list, fps)
             frames = read_scene_frames(video_path, scene_list, representative, backend=backend)
+
+        # Keep the original source alive, including BytesIO, rather than the
+        # temporary path used for detection. Scene timecodes are source-relative.
+        scene_videos = [
+            InputImpl.VideoFromFile(
+                source, start_time=start.seconds, duration=end.seconds - start.seconds,
+            )
+            for start, end in scene_list
+        ]
 
         image_tensors = []
         thumbnail_subdir = thumbs_dir.strip() or "scene_thumbs"
@@ -208,7 +235,9 @@ class PySceneDetectVideo:
             indent=2,
         )
 
-        return (batch, scenes_json, len(rows))
+        # An empty list crashes non-list consumers such as Save Video.
+        video_output = scene_videos or [ExecutionBlocker(None)]
+        return (batch, scenes_json, len(rows), video_output)
 
 
 NODE_CLASS_MAPPINGS = {"PySceneDetectVideo": PySceneDetectVideo}

@@ -4,6 +4,7 @@
 # Dependencies needed to import ComfyUI v0.41.0's VIDEO API in the tests.
 torch
 av>=17.0.0
+imageio-ffmpeg
 einops
 packaging
 Pillow
