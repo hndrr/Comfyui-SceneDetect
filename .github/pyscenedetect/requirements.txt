@@ -1,1 +1,1 @@
-scenedetect-headless==0.7.2
+scenedetect-headless==0.7.3
